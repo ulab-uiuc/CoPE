@@ -1,170 +1,125 @@
-# Open-Source Research Project in Python: A Template
+# CoPE
 
-[![Python 3.10](https://img.shields.io/badge/python-3.10-blue.svg)](https://www.python.org/downloads/release/python-3109/)
-[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://pre-commit.com/)
-<a href="https://github.com/psf/black"><img alt="Code style: black" src="https://img.shields.io/badge/code%20style-black-000000.svg"></a>
-[![Checked with mypy](https://www.mypy-lang.org/static/mypy_badge.svg)](https://mypy-lang.org/)
-[![bear-ified](https://raw.githubusercontent.com/beartype/beartype-assets/main/badge/bear-ified.svg)](https://beartype.readthedocs.io)
-[![Github Action](https://github.com/lwaekfjlk/python-project-template/actions/workflows/pytest.yml/badge.svg?branch=main)]()
+Reinforcement learning for LLM agents across interactive environments, built on
+[AgentGym-RL](https://github.com/PolarisDane/Agentgym-RL)'s verl fork.
 
-> [!NOTE]
-> This repo is continuously updating with more tools. Any contribution is welcome.
+The contribution is a set of auxiliary training signals that supplement the sparse
+trajectory-level reward these benchmarks provide:
 
-## ✨ Motivation
+| module | idea |
+|---|---|
+| `src/verl/agent_trainer/ppo/world_model_loss.py` | predict the next observation; the loss on that prediction is an auxiliary objective |
+| `src/verl/agent_trainer/ppo/plan_forecast.py` | forecast the plan ahead of acting and score the agent against it |
+| `src/verl/agent_trainer/ppo/wmc_erc.py` | world-model consistency + entropy-regularised clipping |
+| `src/verl/trainer/ppo/info_grpo.py` | turn-level information gain from a masked-feedback counterfactual |
 
-To ensure high standards in engineering projects, we offer a standardized template specifically designed for open-source Python research projects. This template is an excellent choice if you:
+All of them are additive. With every flag off the training path is the stock GRPO one,
+which the unit tests assert element-wise — so a run of this repo reproduces the baseline
+before it reproduces the method.
 
-1. Want to facilitate seamless collaboration and extension of your project by other researchers.
-2. Aim to bridge communication gaps among collaborators effectively.
-3. Seek to make rapid iterations with assurance that small code modifications won’t disrupt the overall project.
-4. Wish to reduce the frequency of frustrating runtime errors during experiments.
+## Environments
 
-## 🔨 Continuous Integration (CI) Workflow
+| environment | train | eval | launcher |
+|---|---|---|---|
+| SciWorld | ✓ | ✓ | ✓ |
+| TextCraft | ✓ | ✓ | |
+| WebArena | ✓ | ✓ | |
+| SearchQA | ✓ | ✓ | |
+| BabyAI | ✓ | ✓ | ✓ |
+| ALFWorld | | | ✓ |
+| WebShop | | | ✓ |
+| τ²-bench | ✓ | ✓ | ✓ |
 
-Here's a clearer and more straightforward guideline of the steps for working with your codebase. If working in a small group or working on a simple project, some of the steps can be skipped.
+Two baselines are configured alongside the method: `examples/train/AgentGym-RL/` and
+`examples/train/ScalingInter-RL/`. Method variants appear as suffixes —
+`_wm_loss`, `_wm_loss_clip`, `_wmc_erc_only`.
 
-1. **Create Issue**
-
-   Before starting, open a new issue in the repository detailing what you plan to implement. Assign the issue to yourself.
-
-2. **Sync Repo**
-
-   Update your local repository to match the latest version of the remote repository.
-
-3. **Create Branch**
-
-   Create a new branch for your task. Name it appropriately based on the type of task, such as `feature/feature-name`, `bug/bug-name`, or `exp/exp-name`.
-
-4. **Implement Code**
-
-   Work on your task and make necessary changes to the codebase.
-
-5. **Test Locally**
-
-   Run tests using tools like mypy, pytest, and pre-commit. Ensure all tests pass before proceeding.
-
-6. **Change Commit**
-
-   Add and commit your changes to the branch, then push the branch to the repository.
-
-7. **Create PR**
-
-   Open a Pull Request (PR) for the branch you've pushed.
-
-8. **Link PR to Issue**
-
-   In your PR, include "Closes #ISSUE_NUM" to link it to the original issue.
-
-9. **Pass Continuous Integration**
-
-   Ensure all GitHub Actions checks pass. If they fail, revise your code based on the errors reported.
-
-10. **Review PR Checklist**
-
-    Verify that all items in the PR checklist are completed, such as updating documentation or adding package requirements.
-
-11. **Ask for Code Review**
-
-    Invite a colleague to review your PR. One approved, Use the "Squash and Merge" option to merge your PR, ensuring a clean commit history.
-
-12. **Troubleshooting**
-
-    If you break down the commit history or main branch, contact the repository owner for assistance with `rebase` or other needed actions.
-
-## 💼 Template Structure
-
-The current project template supports the final package release of our codebase.
+## Layout
 
 ```
-Template/
-│
-├── .github/                  # Contains GitHub related files like workflows
-├── docs/                     # Documentation for the project
-├── src/                      # Main package directory
-├── stubs/                    # Type stubs for static typing (for mypy strict mode)
-├── tests/                    # Test scripts and resources
-│
-├── .gitignore                # Specifies untracked files to ignore
-├── .pre-commit-config.yaml   # Configurations for pre-commit hooks
-├── poetry.lock               # Lock file generated by poetry for dependencies
-├── pyproject.toml            # Project metadata and tool configurations
+src/verl/                 the training framework (fork of AgentGym-RL's verl)
+  agent_trainer/ppo/      world_model_loss, plan_forecast, wmc_erc, ray_trainer
+  trainer/ppo/            info_grpo, intrinsic_reward, turn_structure
+  workers/                actor, rollout, FSDP workers
+src/envs/tau2/            the τ²-bench environment server and client
+examples/train/           per-environment configs, two baselines, method variants
+examples/eval/            evaluation configs
+scripts/                  launchers, evaluation harness, scoring, visualisation
+docs/TAU2_GRPO.md         τ²-bench protocol alignment and findings
+data/                     τ²-bench item-id datasets
 ```
 
-## ❓ Issue & Pull Request
+## Setup
 
-An issue typically describes a new feature (`feature`), fixing an old bug (`bug`), launching a group of experiments (`exp`), or refactoring part of the code (`refactor`). Using different issue templates for different issues.
+```bash
+git clone --recurse-submodules https://github.com/ulab-uiuc/CoPE.git
+# environments other than tau2 come from the AgentGym submodule
+git submodule update --init AgentGym
+```
 
-A PR typically implements the content mentioned in one issue.
+Environment servers run as separate processes from training — several need Python
+versions that conflict with the training stack (WebShop is on 3.8, τ²-bench needs ≥3.12
+against a 3.10 trainer), so each is its own HTTP service that training reaches over
+`requests`.
 
-Notice about the development:
+For τ²-bench specifically, see `docs/TAU2_GRPO.md`: the benchmark must be pinned to
+commit `c5b2d22`, and evaluation goes through tau2's own CLI. Those two choices are what
+make numbers comparable to published baselines.
 
-1. When creating an issue, assign the responsible member for fixing that if possible
-2. When creating a PR, make sure you uses `feature/feature-name`, `bug/bug-name`, `exp/exp-name` for its branch
-3. When finishing one PR, make sure all the github action is passed and all the checks are done.
-4. When merging one PR, make sure using `squash and merge` instead of `merge a pull request`.
-5. Avoid making any direct commit to the `main` branch and try to avoid any `--force` push to any branch unless you are pretty sure about that.
+```bash
+# τ²-bench
+git clone https://github.com/sierra-research/tau2-bench.git
+git -C tau2-bench checkout c5b2d22
+conda create -y -p ./envs/tau2 python=3.12
+./envs/tau2/bin/pip install -e tau2-bench -e src/envs/tau2 gymnasium
+```
 
-## 👷 Type Checking
+## Running
 
-- Tools
+```bash
+# a configured environment, baseline
+bash examples/train/AgentGym-RL/sciworld_train.sh
 
-  - static type checking (`mypy`)
+# with the world-model loss and clipping
+bash examples/train/AgentGym-RL/sciworld_wm_loss_clip_train.sh
 
-  - dynamic type checking (`beartype`)
+# tmux launchers bring up env servers + training together
+bash scripts/launch_sciworld_grpo_tmux.sh
+bash scripts/launch_tau2_grpo_tmux.sh
+```
 
-- Guidelines
-  - Run `mypy --strict ./` under the root of the current repo to test the static type.
+τ²-bench evaluation, scoring against published numbers, and the trajectory viewer:
 
-## 🏅️ Unit Testing
+```bash
+sbatch --export=ALL,TAU2_VERSION=infopo,MODEL_PATH=<hf-ckpt>,TAG=mine \
+  scripts/sbatch_tau2_align.sh
+python scripts/tau2_align_score.py --tag mine
+python scripts/tau2_viz_trajectories.py "base=<tag>" "trained=<tag>" --out traj.html
+```
 
-- Tools
+## τ²-bench status
 
-  - testing code components based on testing function (`pytest`)
+τ²-bench is the most recent addition and its results are negative so far, reported here
+rather than omitted. Avg@4 on the test splits, gpt-4o-mini customer:
 
-- Guidelines
-  - Run `pytest` under the root of the current repo to check unit test results.
+| | airline | retail | telecom |
+|---|---|---|---|
+| base | 8.8 | 9.4 | 8.1 |
+| GRPO @ step 25 | **18.8** | 10.0 | 1.9 |
+| RAGEN (published) | 15.0 | 17.5 | 17.5 |
+| InfoPO (published) | 16.3 | 18.8 | 18.1 |
 
-## 🧐 Code Spell Checking
+Plain GRPO lifts one domain at the others' expense — reward shaping only decides which
+(binary → airline, dense → retail) — and telecom regresses under every configuration
+tried. Telecom's failure is a decoding collapse rather than a statistical shortfall: the
+policy emits bare `<tool_call>` tags with no JSON body and loops to the step cap, in 90%
+of base episodes and 99% after training. Published RAGEN is itself GRPO-family and does
+reach 15.0/17.5/17.5, so the gap is a missing mechanism; variance-based trajectory
+filtering (`GRPO_FILTER_DEGENERATE=1`) and `info_grpo` are implemented here but not yet
+run end to end.
 
-- Tools
-
-  - code spell checking (`codespell`)
-
-- Guidelines
-  - Commonly need to ignore part of the files in the repository like `/data`.
-
-## 🪝 Pre-commit Hook
-
-- Tools
-
-  - code formatting (`prettier`)
-
-  - import package sorting (`isort`)
-
-  - ipynb output clear (`nbstripout`)
-
-  - code bug checking (`ruff`)
-
-- Guidelines
-
-  - Run `python -m pip install pre-commit` to install `pre-commit`
-
-  - Run `pre-commit install` to allow hooking pre-commit with any `git commit` commands.
-
-## 🧑‍💼 Dependency Management
-
-- Tools
-
-  - We utilize `poetry` to support the dependency requirements. Dependency for different usage of the repo can be defined separately in `pyproject.toml`.
-
-- Guidelines
-
-  - Run `pip install poetry` to finish the installation of poetry.
-
-  - Create `conda environment` with a specified Python version
-
-  - Run `poetry install` to install required dependencies.
-
-## ❤️ Contribution
-
-I welcome all kinds of contributions, e.g. adding more tools, better practices, and discussion on trade-offs.
+`docs/TAU2_GRPO.md` carries the details, including two traps worth knowing before
+comparing any numbers: absolute scores are not transferable across evaluation setups
+(the same base model scores 8.8 on airline under gpt-4o-mini and 15.0 under a local 7B
+customer), and a partially-complete tau2 run is biased toward short tasks in a way that
+reads like signal.
