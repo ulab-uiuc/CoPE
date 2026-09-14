@@ -1,0 +1,372 @@
+[
+  {
+    "item_id": "tau2_0",
+    "task_type": "telecom",
+    "task_id": "[mobile_data_issue]airplane_mode_on|user_abroad_roaming_enabled_off[PERSONA:None]"
+  },
+  {
+    "item_id": "tau2_1",
+    "task_type": "telecom",
+    "task_id": "[mobile_data_issue]airplane_mode_on|data_mode_off[PERSONA:None]"
+  },
+  {
+    "item_id": "tau2_2",
+    "task_type": "telecom",
+    "task_id": "[mobile_data_issue]airplane_mode_on|bad_network_preference[PERSONA:Hard]"
+  },
+  {
+    "item_id": "tau2_3",
+    "task_type": "telecom",
+    "task_id": "[mobile_data_issue]bad_network_preference|user_abroad_roaming_enabled_off[PERSONA:Hard]"
+  },
+  {
+    "item_id": "tau2_4",
+    "task_type": "telecom",
+    "task_id": "[mobile_data_issue]data_usage_exceeded|user_abroad_roaming_enabled_off[PERSONA:Easy]"
+  },
+  {
+    "item_id": "tau2_5",
+    "task_type": "telecom",
+    "task_id": "[mobile_data_issue]data_mode_off|data_usage_exceeded[PERSONA:None]"
+  },
+  {
+    "item_id": "tau2_6",
+    "task_type": "telecom",
+    "task_id": "[mobile_data_issue]data_saver_mode_on|data_usage_exceeded[PERSONA:Easy]"
+  },
+  {
+    "item_id": "tau2_7",
+    "task_type": "telecom",
+    "task_id": "[mobile_data_issue]airplane_mode_on|bad_network_preference|user_abroad_roaming_enabled_off[PERSONA:Easy]"
+  },
+  {
+    "item_id": "tau2_8",
+    "task_type": "telecom",
+    "task_id": "[mobile_data_issue]bad_network_preference|bad_vpn|user_abroad_roaming_enabled_off[PERSONA:Easy]"
+  },
+  {
+    "item_id": "tau2_9",
+    "task_type": "telecom",
+    "task_id": "[mobile_data_issue]bad_vpn|data_saver_mode_on|user_abroad_roaming_disabled_on[PERSONA:None]"
+  },
+  {
+    "item_id": "tau2_10",
+    "task_type": "telecom",
+    "task_id": "[mobile_data_issue]bad_network_preference|bad_vpn|user_abroad_roaming_disabled_on[PERSONA:None]"
+  },
+  {
+    "item_id": "tau2_11",
+    "task_type": "telecom",
+    "task_id": "[mobile_data_issue]data_mode_off|data_usage_exceeded|user_abroad_roaming_disabled_off[PERSONA:Hard]"
+  },
+  {
+    "item_id": "tau2_12",
+    "task_type": "telecom",
+    "task_id": "[mobile_data_issue]bad_network_preference|data_saver_mode_on|data_usage_exceeded[PERSONA:Hard]"
+  },
+  {
+    "item_id": "tau2_13",
+    "task_type": "telecom",
+    "task_id": "[mobile_data_issue]airplane_mode_on|bad_network_preference|data_mode_off|user_abroad_roaming_disabled_on[PERSONA:Hard]"
+  },
+  {
+    "item_id": "tau2_14",
+    "task_type": "telecom",
+    "task_id": "[mobile_data_issue]airplane_mode_on|bad_network_preference|data_usage_exceeded|user_abroad_roaming_disabled_off[PERSONA:Easy]"
+  },
+  {
+    "item_id": "tau2_15",
+    "task_type": "telecom",
+    "task_id": "[mobile_data_issue]bad_network_preference|bad_vpn|data_usage_exceeded|user_abroad_roaming_disabled_off[PERSONA:Easy]"
+  },
+  {
+    "item_id": "tau2_16",
+    "task_type": "telecom",
+    "task_id": "[mobile_data_issue]bad_network_preference|bad_vpn|data_mode_off|data_saver_mode_on[PERSONA:None]"
+  },
+  {
+    "item_id": "tau2_17",
+    "task_type": "telecom",
+    "task_id": "[mobile_data_issue]airplane_mode_on|bad_network_preference|data_mode_off|data_usage_exceeded|user_abroad_roaming_disabled_on[PERSONA:None]"
+  },
+  {
+    "item_id": "tau2_18",
+    "task_type": "telecom",
+    "task_id": "[mobile_data_issue]airplane_mode_on|bad_network_preference|bad_vpn|data_saver_mode_on|user_abroad_roaming_disabled_on[PERSONA:Easy]"
+  },
+  {
+    "item_id": "tau2_19",
+    "task_type": "telecom",
+    "task_id": "[mobile_data_issue]airplane_mode_on|bad_network_preference|data_saver_mode_on|data_usage_exceeded|user_abroad_roaming_disabled_off[PERSONA:None]"
+  },
+  {
+    "item_id": "tau2_20",
+    "task_type": "telecom",
+    "task_id": "[mobile_data_issue]bad_network_preference|data_mode_off|data_saver_mode_on|data_usage_exceeded|user_abroad_roaming_disabled_off[PERSONA:Easy]"
+  },
+  {
+    "item_id": "tau2_21",
+    "task_type": "telecom",
+    "task_id": "[mobile_data_issue]airplane_mode_on|bad_network_preference|bad_vpn|data_mode_off|data_usage_exceeded|user_abroad_roaming_enabled_off[PERSONA:Easy]"
+  },
+  {
+    "item_id": "tau2_22",
+    "task_type": "telecom",
+    "task_id": "[mobile_data_issue]airplane_mode_on|bad_network_preference|bad_vpn|data_saver_mode_on|data_usage_exceeded|user_abroad_roaming_enabled_off[PERSONA:None]"
+  },
+  {
+    "item_id": "tau2_23",
+    "task_type": "telecom",
+    "task_id": "[mobile_data_issue]airplane_mode_on|bad_network_preference|data_mode_off|data_saver_mode_on|data_usage_exceeded|user_abroad_roaming_disabled_on[PERSONA:None]"
+  },
+  {
+    "item_id": "tau2_24",
+    "task_type": "telecom",
+    "task_id": "[mobile_data_issue]airplane_mode_on|bad_network_preference|bad_vpn|data_mode_off|data_saver_mode_on|user_abroad_roaming_disabled_off[PERSONA:Hard]"
+  },
+  {
+    "item_id": "tau2_25",
+    "task_type": "telecom",
+    "task_id": "[mobile_data_issue]airplane_mode_on|bad_network_preference|bad_vpn|data_mode_off|data_saver_mode_on|data_usage_exceeded|user_abroad_roaming_disabled_on[PERSONA:None]"
+  },
+  {
+    "item_id": "tau2_26",
+    "task_type": "telecom",
+    "task_id": "[mobile_data_issue]airplane_mode_on|bad_network_preference|bad_vpn|data_mode_off|data_saver_mode_on|data_usage_exceeded|user_abroad_roaming_disabled_off[PERSONA:Hard]"
+  },
+  {
+    "item_id": "tau2_27",
+    "task_type": "telecom",
+    "task_id": "[service_issue]airplane_mode_on|unseat_sim_card[PERSONA:None]"
+  },
+  {
+    "item_id": "tau2_28",
+    "task_type": "telecom",
+    "task_id": "[service_issue]airplane_mode_on|break_apn_settings[PERSONA:Hard]"
+  },
+  {
+    "item_id": "tau2_29",
+    "task_type": "telecom",
+    "task_id": "[service_issue]lock_sim_card_pin|overdue_bill_suspension[PERSONA:Easy]"
+  },
+  {
+    "item_id": "tau2_30",
+    "task_type": "telecom",
+    "task_id": "[service_issue]contract_end_suspension|lock_sim_card_pin[PERSONA:Hard]"
+  },
+  {
+    "item_id": "tau2_31",
+    "task_type": "telecom",
+    "task_id": "[service_issue]airplane_mode_on|lock_sim_card_pin|unseat_sim_card[PERSONA:Hard]"
+  },
+  {
+    "item_id": "tau2_32",
+    "task_type": "telecom",
+    "task_id": "[service_issue]airplane_mode_on|break_apn_settings|unseat_sim_card[PERSONA:None]"
+  },
+  {
+    "item_id": "tau2_33",
+    "task_type": "telecom",
+    "task_id": "[service_issue]airplane_mode_on|overdue_bill_suspension|unseat_sim_card[PERSONA:Easy]"
+  },
+  {
+    "item_id": "tau2_34",
+    "task_type": "telecom",
+    "task_id": "[service_issue]airplane_mode_on|break_apn_settings|lock_sim_card_pin[PERSONA:None]"
+  },
+  {
+    "item_id": "tau2_35",
+    "task_type": "telecom",
+    "task_id": "[service_issue]break_apn_settings|overdue_bill_suspension|unseat_sim_card[PERSONA:Hard]"
+  },
+  {
+    "item_id": "tau2_36",
+    "task_type": "telecom",
+    "task_id": "[service_issue]airplane_mode_on|lock_sim_card_pin|overdue_bill_suspension|unseat_sim_card[PERSONA:Easy]"
+  },
+  {
+    "item_id": "tau2_37",
+    "task_type": "telecom",
+    "task_id": "[service_issue]airplane_mode_on|break_apn_settings|overdue_bill_suspension|unseat_sim_card[PERSONA:None]"
+  },
+  {
+    "item_id": "tau2_38",
+    "task_type": "telecom",
+    "task_id": "[service_issue]airplane_mode_on|break_apn_settings|contract_end_suspension|unseat_sim_card[PERSONA:Easy]"
+  },
+  {
+    "item_id": "tau2_39",
+    "task_type": "telecom",
+    "task_id": "[service_issue]break_apn_settings|lock_sim_card_pin|overdue_bill_suspension|unseat_sim_card[PERSONA:Easy]"
+  },
+  {
+    "item_id": "tau2_40",
+    "task_type": "telecom",
+    "task_id": "[service_issue]airplane_mode_on|break_apn_settings|lock_sim_card_pin|overdue_bill_suspension|unseat_sim_card[PERSONA:None]"
+  },
+  {
+    "item_id": "tau2_41",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]break_app_storage_permission|data_usage_exceeded[PERSONA:Easy]"
+  },
+  {
+    "item_id": "tau2_42",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]break_app_both_permissions|data_usage_exceeded[PERSONA:Hard]"
+  },
+  {
+    "item_id": "tau2_43",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]bad_network_preference|user_abroad_roaming_disabled_on[PERSONA:None]"
+  },
+  {
+    "item_id": "tau2_44",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]bad_network_preference|user_abroad_roaming_disabled_off[PERSONA:None]"
+  },
+  {
+    "item_id": "tau2_45",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]airplane_mode_on|bad_network_preference|data_usage_exceeded[PERSONA:None]"
+  },
+  {
+    "item_id": "tau2_46",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]break_app_storage_permission|unseat_sim_card|user_abroad_roaming_disabled_on[PERSONA:Easy]"
+  },
+  {
+    "item_id": "tau2_47",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]break_app_both_permissions|unseat_sim_card|user_abroad_roaming_disabled_on[PERSONA:Hard]"
+  },
+  {
+    "item_id": "tau2_48",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]bad_wifi_calling|data_mode_off|data_usage_exceeded[PERSONA:Easy]"
+  },
+  {
+    "item_id": "tau2_49",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]break_apn_mms_setting|data_mode_off|user_abroad_roaming_disabled_on[PERSONA:Hard]"
+  },
+  {
+    "item_id": "tau2_50",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]break_app_sms_permission|data_usage_exceeded|user_abroad_roaming_disabled_on[PERSONA:None]"
+  },
+  {
+    "item_id": "tau2_51",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]airplane_mode_on|bad_network_preference|break_apn_mms_setting|data_usage_exceeded[PERSONA:Hard]"
+  },
+  {
+    "item_id": "tau2_52",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]airplane_mode_on|bad_network_preference|break_apn_mms_setting|break_app_storage_permission[PERSONA:None]"
+  },
+  {
+    "item_id": "tau2_53",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]bad_wifi_calling|break_apn_mms_setting|unseat_sim_card|user_abroad_roaming_enabled_off[PERSONA:Easy]"
+  },
+  {
+    "item_id": "tau2_54",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]break_apn_mms_setting|data_mode_off|data_usage_exceeded|user_abroad_roaming_disabled_on[PERSONA:Hard]"
+  },
+  {
+    "item_id": "tau2_55",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]bad_wifi_calling|break_apn_mms_setting|break_app_sms_permission|data_usage_exceeded[PERSONA:Hard]"
+  },
+  {
+    "item_id": "tau2_56",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]airplane_mode_on|bad_network_preference|bad_wifi_calling|break_app_storage_permission|unseat_sim_card[PERSONA:Hard]"
+  },
+  {
+    "item_id": "tau2_57",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]bad_wifi_calling|break_apn_mms_setting|data_mode_off|data_usage_exceeded|unseat_sim_card[PERSONA:None]"
+  },
+  {
+    "item_id": "tau2_58",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]bad_network_preference|break_app_sms_permission|data_mode_off|data_usage_exceeded|user_abroad_roaming_enabled_off[PERSONA:None]"
+  },
+  {
+    "item_id": "tau2_59",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]bad_network_preference|bad_wifi_calling|break_app_both_permissions|data_usage_exceeded|user_abroad_roaming_disabled_off[PERSONA:Hard]"
+  },
+  {
+    "item_id": "tau2_60",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]airplane_mode_on|bad_network_preference|break_apn_mms_setting|data_mode_off|unseat_sim_card|user_abroad_roaming_disabled_off[PERSONA:Easy]"
+  },
+  {
+    "item_id": "tau2_61",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]airplane_mode_on|bad_network_preference|bad_wifi_calling|data_usage_exceeded|unseat_sim_card|user_abroad_roaming_disabled_on[PERSONA:Easy]"
+  },
+  {
+    "item_id": "tau2_62",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]bad_network_preference|bad_wifi_calling|break_app_sms_permission|data_mode_off|unseat_sim_card|user_abroad_roaming_enabled_off[PERSONA:Hard]"
+  },
+  {
+    "item_id": "tau2_63",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]bad_network_preference|bad_wifi_calling|break_app_both_permissions|data_usage_exceeded|unseat_sim_card|user_abroad_roaming_disabled_off[PERSONA:None]"
+  },
+  {
+    "item_id": "tau2_64",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]airplane_mode_on|bad_network_preference|break_apn_mms_setting|break_app_both_permissions|data_mode_off|data_usage_exceeded|user_abroad_roaming_enabled_off[PERSONA:None]"
+  },
+  {
+    "item_id": "tau2_65",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]bad_network_preference|bad_wifi_calling|break_apn_mms_setting|break_app_storage_permission|data_mode_off|data_usage_exceeded|unseat_sim_card[PERSONA:Easy]"
+  },
+  {
+    "item_id": "tau2_66",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]airplane_mode_on|bad_network_preference|bad_wifi_calling|break_app_storage_permission|data_mode_off|data_usage_exceeded|unseat_sim_card|user_abroad_roaming_enabled_off[PERSONA:Hard]"
+  },
+  {
+    "item_id": "tau2_67",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]airplane_mode_on|bad_network_preference|bad_wifi_calling|break_app_sms_permission|data_mode_off|data_usage_exceeded|unseat_sim_card|user_abroad_roaming_disabled_off[PERSONA:None]"
+  },
+  {
+    "item_id": "tau2_68",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]airplane_mode_on|bad_network_preference|bad_wifi_calling|break_apn_mms_setting|break_app_storage_permission|data_mode_off|data_usage_exceeded|unseat_sim_card[PERSONA:Easy]"
+  },
+  {
+    "item_id": "tau2_69",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]airplane_mode_on|bad_network_preference|bad_wifi_calling|break_apn_mms_setting|break_app_storage_permission|data_usage_exceeded|unseat_sim_card|user_abroad_roaming_disabled_off[PERSONA:Easy]"
+  },
+  {
+    "item_id": "tau2_70",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]airplane_mode_on|bad_network_preference|bad_wifi_calling|break_apn_mms_setting|break_app_sms_permission|data_mode_off|data_usage_exceeded|unseat_sim_card|user_abroad_roaming_enabled_off[PERSONA:None]"
+  },
+  {
+    "item_id": "tau2_71",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]airplane_mode_on|bad_network_preference|bad_wifi_calling|break_apn_mms_setting|break_app_both_permissions|data_mode_off|data_usage_exceeded|unseat_sim_card|user_abroad_roaming_disabled_on[PERSONA:Hard]"
+  },
+  {
+    "item_id": "tau2_72",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]airplane_mode_on|bad_network_preference|bad_wifi_calling|break_apn_mms_setting|break_app_storage_permission|data_mode_off|data_usage_exceeded|unseat_sim_card|user_abroad_roaming_disabled_off[PERSONA:Easy]"
+  },
+  {
+    "item_id": "tau2_73",
+    "task_type": "telecom",
+    "task_id": "[mms_issue]airplane_mode_on|bad_network_preference|bad_wifi_calling|break_apn_mms_setting|break_app_both_permissions|data_mode_off|data_usage_exceeded|unseat_sim_card|user_abroad_roaming_disabled_off[PERSONA:Hard]"
+  }
+]

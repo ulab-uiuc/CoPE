@@ -158,3 +158,20 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+# tau2-grpo: large artefacts and secrets
+.secrets/
+tau2-bench/
+Agentgym-RL/
+/envs/
+runlogs/
+slurm_logs/
+checkpoints/
+.hf_cache/
+*.html
+
+# The tau2 environment package is source, not a virtualenv -- the template's `env/`
+# rule above would otherwise swallow it.
+!src/tau2_grpo/env/
+!src/tau2_grpo/env/**
+src/tau2_grpo/env/**/__pycache__/

@@ -1,0 +1,315 @@
+diff --git a/AgentGym-RL/verl/agent_trainer/ppo/ray_trainer.py b/AgentGym-RL/verl/agent_trainer/ppo/ray_trainer.py
+index 283643f..4eb1e3c 100644
+--- a/AgentGym-RL/verl/agent_trainer/ppo/ray_trainer.py
++++ b/AgentGym-RL/verl/agent_trainer/ppo/ray_trainer.py
+@@ -50,9 +50,15 @@ from verl.agent_trainer.ppo.plan_forecast import (
+     parse_k_schedule,
+     active_k_range,
+ )
+-from verl.agent_trainer.ppo.sft_ablation import (
+-    build_sft_ablation_batch,
+-)
++# verl.agent_trainer.ppo.sft_ablation is not present in this checkout (never
++# committed), and importing it at module scope makes *every* run fail on import. The
++# feature is off by default, so bind the symbol lazily and only fail if it is enabled.
++try:
++    from verl.agent_trainer.ppo.sft_ablation import (
++        build_sft_ablation_batch,
++    )
++except ImportError:
++    build_sft_ablation_batch = None
+ from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
+ from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
+ from verl.utils.agent_dataset.rl_dataset import RLHFDataset, collate_fn
+@@ -155,6 +161,28 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController,
+     return data, metrics
+ 
+ 
++def _filter_degenerate_groups(token_level_rewards, response_mask, index, epsilon=1e-6):
++    """Zero the response mask for samples whose GRPO group has no within-group spread.
++
++    Returns (mask, n_groups_dropped, n_groups_total).
++    """
++    import collections
++    scores = token_level_rewards.sum(dim=-1)
++    by_group = collections.defaultdict(list)
++    for i in range(scores.shape[0]):
++        by_group[index[i]].append(i)
++    mask = response_mask.clone()
++    dropped = 0
++    for _gid, rows in by_group.items():
++        vals = scores[rows]
++        if vals.numel() > 1 and vals.std() > epsilon:
++            continue
++        dropped += 1
++        for r in rows:
++            mask[r] = 0
++    return mask, dropped, len(by_group)
++
++
+ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_repeat=1):
+     # prepare response group
+     # TODO: add other ways to estimate advantages
+@@ -173,11 +201,45 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
+         token_level_rewards = data.batch['token_level_rewards']
+         index = data.non_tensor_batch['uid']
+         response_mask = data.batch['response_mask']
++        # Variance-based trajectory filtering (RAGEN). A group whose rollouts all scored
++        # the same already yields zero advantage, but under token-mean aggregation its
++        # tokens still sit in the loss denominator. On tau2 78.7% of groups are
++        # degenerate, so the informative 21% get their gradient diluted roughly 5x.
++        # Dropping those samples from the mask removes them from numerator and
++        # denominator alike. Off by default: it changes the effective step size, so it
++        # is not something to enable silently in a run meant to match a published one.
++        if os.environ.get('GRPO_FILTER_DEGENERATE') == '1':
++            response_mask, n_drop, n_tot = _filter_degenerate_groups(
++                token_level_rewards, response_mask, index)
++            data.batch['response_mask'] = response_mask
++            data.meta_info['grpo_filtered_frac'] = n_drop / max(1, n_tot)
+         advantages, returns = core_algos.compute_grpo_outcome_advantage(token_level_rewards=token_level_rewards,
+                                                                         eos_mask=response_mask,
+                                                                         index=index)
+         data.batch['advantages'] = advantages
+         data.batch['returns'] = returns
++    elif adv_estimator == 'info_grpo':
++        # GRPO's outcome term plus a turn-level information gain. The intrinsic tensor
++        # is produced during the actor update (it needs a forward pass); when it is
++        # absent this falls back to exactly plain GRPO, so the branch is safe to select
++        # before the producer side is wired up.
++        from verl.trainer.ppo.info_grpo import compute_info_grpo_advantage
++        token_level_rewards = data.batch['token_level_rewards']
++        index = data.non_tensor_batch['uid']
++        response_mask = data.batch['response_mask']
++        intrinsic = data.batch.get('token_level_intrinsic_rewards')
++        if intrinsic is None:
++            intrinsic = torch.zeros_like(token_level_rewards)
++        advantages, returns = compute_info_grpo_advantage(
++            token_level_rewards=token_level_rewards,
++            token_level_intrinsic_rewards=intrinsic,
++            eos_mask=response_mask,
++            index=index,
++            intrinsic_weight=float(os.environ.get('INFO_INTRINSIC_WEIGHT', 0.1)),
++            gate_temperature=float(os.environ.get('INFO_GATE_TEMP', 0.05)),
++        )
++        data.batch['advantages'] = advantages
++        data.batch['returns'] = returns
+     elif adv_estimator == 'rloo':
+         token_level_rewards = data.batch['token_level_rewards']
+         index = data.non_tensor_batch['uid']
+@@ -1119,6 +1181,11 @@ class RayPPOTrainer(object):
+         actor_cfg = self.config.actor_rollout_ref.actor
+         if not actor_cfg.get('sft_ablation_enable', False):
+             return None, {}
++        if build_sft_ablation_batch is None:
++            raise ImportError(
++                "sft_ablation_enable=True but verl.agent_trainer.ppo.sft_ablation is "
++                "missing from this checkout."
++            )
+         if coef <= 0:
+             return None, {'sft_ablation/coef': 0.0}
+ 
+@@ -1468,6 +1535,17 @@ class RayPPOTrainer(object):
+                             )
+                             metrics.update(wmc_reward_metrics)
+ 
++                        # info_grpo needs a turn-level information gain, which costs an
++                        # extra forward pass, so only produce it when that estimator is
++                        # actually selected.
++                        if self.config.algorithm.adv_estimator == 'info_grpo':
++                            with _timer('intrinsic_reward', timing_raw):
++                                ir = self.actor_rollout_wg.compute_intrinsic_rewards(batch)
++                                batch = batch.union(ir)
++                                _m = batch.batch['token_level_intrinsic_rewards']
++                                metrics['info/intrinsic_mean'] = _m.mean().item()
++                                metrics['info/intrinsic_nonzero_frac'] = (_m != 0).float().mean().item()
++
+                         # compute advantages, executed on the driver process
+                         batch = compute_advantage(batch,
+                                                   adv_estimator=self.config.algorithm.adv_estimator,
+diff --git a/AgentGym-RL/verl/utils/agent_dataset/rl_dataset.py b/AgentGym-RL/verl/utils/agent_dataset/rl_dataset.py
+index e6795b5..8adafc4 100644
+--- a/AgentGym-RL/verl/utils/agent_dataset/rl_dataset.py
++++ b/AgentGym-RL/verl/utils/agent_dataset/rl_dataset.py
+@@ -131,7 +131,15 @@ class RLHFDataset(Dataset):
+ 
+     def _build_messages(self, example: dict):
+         example["data_source"] = example[self.prompt_key].split("_")[0]
+-        instruction = self.env_client.conversation_start[0]["value"]
++        # Mixed-domain training puts tasks from several tau2 domains in one dataset, and
++        # each domain has its own policy document and tool list. Ask the client for the
++        # prompt matching this row's domain when it can supply one; a single shared
++        # prompt would describe the wrong tools for most of the batch. Falls back to the
++        # client's default prompt for every single-domain env, so nothing else changes.
++        conv_start = self.env_client.conversation_start
++        if hasattr(self.env_client, "conversation_start_for"):
++            conv_start = self.env_client.conversation_start_for(example.get("task_type"))
++        instruction = conv_start[0]["value"]
+         # Bake the standing instruction only when inline is on AND no warmup is set.
+         # With warmup_steps > 0 the per-turn reminder (step-gated) is the sole driver.
+         # When inline is on, REPLACE the env's instruction with the plan instruction
+@@ -146,7 +154,7 @@ class RLHFDataset(Dataset):
+                 inline_plan_instruction, todo_plan_instruction)
+             instr_fn = todo_plan_instruction if self.plan_inline_style == 'todo' else inline_plan_instruction
+             instruction = instr_fn(self.plan_inline_k)
+-        ack = self.env_client.conversation_start[1]["value"]
++        ack = conv_start[1]["value"]
+         messages = [{"role": "user", "content": instruction},
+                      {"role": "assistant", "content": ack}]
+         prompt_with_chat_template = "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\n" + instruction + "<|im_end|>\n<|im_start|>assistant\n" + ack + "<|im_end|>"
+diff --git a/AgentGym-RL/verl/utils/agentgym/client.py b/AgentGym-RL/verl/utils/agentgym/client.py
+index 7b72462..48a3fc1 100644
+--- a/AgentGym-RL/verl/utils/agentgym/client.py
++++ b/AgentGym-RL/verl/utils/agentgym/client.py
+@@ -11,6 +11,7 @@ from agentenv.envs import (
+     SciworldEnvClient,
+     SheetEnvClient,
+     SqlGymEnvClient,
++    Tau2EnvClient,
+     TextCraftEnvClient,
+     TodoEnvClient,
+     WeatherEnvClient,
+@@ -68,6 +69,7 @@ def init_env_client(args):
+         "alfworld": AlfWorldEnvClient,
+         "babyai": BabyAIEnvClient,
+         "sciworld": SciworldEnvClient,
++        "tau2": Tau2EnvClient,
+         "textcraft": TextCraftEnvClient,
+         "webarena": WebarenaEnvClient,
+         "sqlgym": SqlGymEnvClient,
+diff --git a/AgentGym-RL/verl/workers/agent_fsdp_workers.py b/AgentGym-RL/verl/workers/agent_fsdp_workers.py
+index c251eee..333005f 100644
+--- a/AgentGym-RL/verl/workers/agent_fsdp_workers.py
++++ b/AgentGym-RL/verl/workers/agent_fsdp_workers.py
+@@ -74,6 +74,14 @@ class ActorRolloutRefWorker(Worker):
+         super().__init__()
+         self.config = config
+         import torch.distributed
++        # Sub-groups created later (notably vLLM's tensor-parallel group) call
++        # new_group() without a timeout and land on NCCL's compiled-in 10-minute
++        # default, which the main group's 3600s below does not cover. An agent rollout
++        # is 15 rounds of generation each gated on an env-server HTTP call, and with a
++        # 14B policy plus a 14B user simulator one round trip can exceed 10 minutes --
++        # the watchdog then tears the job down mid-rollout. Raise the default that
++        # new_group() reads so every sub-group inherits the same budget.
++        torch.distributed.distributed_c10d.default_pg_nccl_timeout = datetime.timedelta(seconds=3600)
+         if not torch.distributed.is_initialized():
+             torch.distributed.init_process_group(backend="nccl", timeout=datetime.timedelta(seconds=3600))
+ 
+@@ -729,6 +737,44 @@ class ActorRolloutRefWorker(Worker):
+         torch.cuda.empty_cache()
+         return output
+ 
++    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
++    def compute_intrinsic_rewards(self, data: DataProto):
++        """Turn-level information gain for adv_estimator=info_grpo.
++
++        Costs one extra pair of forward passes per scored turn, so it is capped by
++        INFO_KL_BATCH / INFO_MAX_TURNS. Returns zeros rather than raising if anything is
++        missing, because info_grpo degrades to plain GRPO on a zero intrinsic tensor --
++        a silently weaker signal beats a crashed run mid-training.
++        """
++        assert self._is_actor
++        from verl.trainer.ppo.intrinsic_reward import compute_intrinsic_rewards as _cir
++        if self._is_offload_param:
++            load_fsdp_param_and_grad(module=self.actor_module_fsdp,
++                                     device_id=torch.cuda.current_device(),
++                                     load_grad=self._is_offload_grad)
++        data = data.to('cuda')
++        with self.ulysses_sharding_manager:
++            data = self.ulysses_sharding_manager.preprocess_data(data)
++            b = data.batch
++            try:
++                intrinsic = _cir(
++                    self.actor_module_fsdp,
++                    input_ids=b['input_ids'], attention_mask=b['attention_mask'],
++                    position_ids=b['position_ids'], observation_mask=b['observation_mask'],
++                    response_mask=b['response_mask'],
++                    kl_batch_size=int(os.environ.get('INFO_KL_BATCH', 2)),
++                    max_turns_per_sample=int(os.environ.get('INFO_MAX_TURNS', 8)),
++                )
++            except Exception as e:
++                print(f'[info_grpo] intrinsic reward failed, falling back to zeros: {e}')
++                intrinsic = torch.zeros_like(b['response_mask'], dtype=torch.float32)
++            output = DataProto.from_dict(tensors={'token_level_intrinsic_rewards': intrinsic})
++            output = self.ulysses_sharding_manager.postprocess_data(output)
++        if self._is_offload_param:
++            offload_fsdp_param_and_grad(module=self.actor_module_fsdp,
++                                        offload_grad=self._is_offload_grad)
++        return output.to('cpu')
++
+     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+     def compute_log_prob(self, data: DataProto):
+         assert self._is_actor
+@@ -922,6 +968,14 @@ class CriticWorker(Worker):
+     def __init__(self, config):
+         super().__init__()
+         import torch.distributed
++        # Sub-groups created later (notably vLLM's tensor-parallel group) call
++        # new_group() without a timeout and land on NCCL's compiled-in 10-minute
++        # default, which the main group's 3600s below does not cover. An agent rollout
++        # is 15 rounds of generation each gated on an env-server HTTP call, and with a
++        # 14B policy plus a 14B user simulator one round trip can exceed 10 minutes --
++        # the watchdog then tears the job down mid-rollout. Raise the default that
++        # new_group() reads so every sub-group inherits the same budget.
++        torch.distributed.distributed_c10d.default_pg_nccl_timeout = datetime.timedelta(seconds=3600)
+         if not torch.distributed.is_initialized():
+             torch.distributed.init_process_group(backend="nccl", timeout=datetime.timedelta(seconds=3600))
+         self.config = config
+diff --git a/AgentGym-RL/verl/workers/rollout/agent_vllm_rollout/vllm_rollout.py b/AgentGym-RL/verl/workers/rollout/agent_vllm_rollout/vllm_rollout.py
+index d79d012..fc7b8ce 100644
+--- a/AgentGym-RL/verl/workers/rollout/agent_vllm_rollout/vllm_rollout.py
++++ b/AgentGym-RL/verl/workers/rollout/agent_vllm_rollout/vllm_rollout.py
+@@ -103,6 +103,14 @@ class vLLMRollout(BaseRollout):
+             load_format=rollout_config.load_format,
+             disable_log_stats=rollout_config.disable_log_stats,
+             max_num_batched_tokens=max_num_batched_tokens,
++            # Without this the engine falls back to the model config's own limit
++            # (32768 for Qwen2.5), and vLLM sizes/validates the KV cache against that
++            # rather than against what a rollout actually needs. Harmless for a 7B,
++            # fatal for a 14B on a 40GB card: engine init dies with "max seq len
++            # (32768) is larger than the maximum number of tokens that can be stored
++            # in KV cache (7472)". Same expression the rollout loop asserts against.
++            max_model_len=min(self.config.max_model_len,
++                              self.config.prompt_length + self.config.response_length),
+             enable_chunked_prefill=rollout_config.enable_chunked_prefill,
+         )
+ 
+@@ -202,6 +210,12 @@ class vLLMRollout(BaseRollout):
+             return 1.0 if bool(task_done) and float(task_score) >= 100.0 else 0.0
+         elif str(task_name).lower() == "webshop":
+             return 1.0 if bool(task_done) and float(task_score) >= 1.0 else 0.0
++        elif str(task_name).lower() == "tau2":
++            # Pass tau2's score through unchanged. It is already 1.0 exactly when every
++            # applicable check passes, and under TAU2_REWARD_SHAPE=dense the values in
++            # between are the partial-credit signal that keeps GRPO groups from being
++            # uniformly zero -- binarising here would throw that away.
++            return float(task_score) if bool(task_done) else 0.0
+         else:
+             return task_score
+ 
+@@ -442,6 +456,25 @@ class vLLMRollout(BaseRollout):
+             },
+             batch_size=batch_size)
+ 
++        # One-time structural check for turn-level advantage estimators: the turn count
++        # derived from observation_mask must match the rollout's own round count. The
++        # mask is per-token and the round counter is per-episode, so a mismatch means
++        # the two disagree about what a turn is -- which would silently misalign any
++        # per-turn credit. Off by default; TAU2_CHECK_TURNS=1 to run it.
++        if os.environ.get("TAU2_CHECK_TURNS") == "1":
++            from verl.trainer.ppo.turn_structure import turn_boundaries_from_observation_mask
++            tb = turn_boundaries_from_observation_mask(observation_mask, response_mask)
++            derived = tb.sum(dim=-1)
++            rounds = torch.tensor(task_rounds, device=derived.device, dtype=derived.dtype)
++            bad = (derived - rounds).abs() > 1  # opening turn has no prior observation
++            if bad.any():
++                i = int(bad.nonzero()[0][0])
++                print(f"[turn-check] MISMATCH sample {i}: derived={int(derived[i])} "
++                      f"rounds={int(rounds[i])}")
++            else:
++                print(f"[turn-check] OK: {int(derived.min())}..{int(derived.max())} turns "
++                      f"per sample, matches task_rounds")
++
+         # Expose per-sample chat history so downstream passes (e.g. the
+         # world-model SFT update) can re-assemble fresh chat-template data
+         # instead of reusing the rollout sequence in-place.
