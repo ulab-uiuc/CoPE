@@ -25,7 +25,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
-from agentenv.envs import Tau2EnvClient
+from envs.tau2.tau2_client import Tau2EnvClient
 
 WRITE_TOOLS = ("cancel_pending_order", "modify_pending_order", "modify_user_address",
                "return_delivered_order_items", "exchange_delivered_order_items")
