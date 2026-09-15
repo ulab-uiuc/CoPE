@@ -15,7 +15,11 @@ trajectory-level reward these benchmarks provide:
 
 All of them are additive. With every flag off the training path is the stock GRPO one,
 which the unit tests assert element-wise — so a run of this repo reproduces the baseline
-before it reproduces the method.
+before it reproduces the method:
+
+```bash
+pytest tests/test_additive.py
+```
 
 ## Environments
 
@@ -42,12 +46,18 @@ src/verl/                 the training framework (fork of AgentGym-RL's verl)
   trainer/ppo/            info_grpo, intrinsic_reward, turn_structure
   workers/                actor, rollout, FSDP workers
 src/envs/tau2/            the τ²-bench environment server and client
+AgentGym/                 submodule: every other environment's server
 examples/train/           per-environment configs, two baselines, method variants
 examples/eval/            evaluation configs
 scripts/                  launchers, evaluation harness, scoring, visualisation
 docs/TAU2_GRPO.md         τ²-bench protocol alignment and findings
 data/                     τ²-bench item-id datasets
+tests/                    the additive claim, asserted element-wise
 ```
+
+Training scripts read item-id files from `data/`. The τ²-bench ones are committed;
+for the other environments they are generated per checkout, since they are derived
+from each benchmark's own task list rather than authored here.
 
 ## Setup
 
@@ -72,6 +82,10 @@ git clone https://github.com/sierra-research/tau2-bench.git
 git -C tau2-bench checkout c5b2d22
 conda create -y -p ./envs/tau2 python=3.12
 ./envs/tau2/bin/pip install -e tau2-bench -e src/envs/tau2 gymnasium
+
+# the item-id files in data/ are committed, but this regenerates them
+./envs/tau2/bin/python scripts/make_tau2_itemid.py \
+    --domains retail airline telecom --split train --out data/
 ```
 
 ## Running
@@ -86,6 +100,9 @@ bash examples/train/AgentGym-RL/sciworld_wm_loss_clip_train.sh
 # tmux launchers bring up env servers + training together
 bash scripts/launch_sciworld_grpo_tmux.sh
 bash scripts/launch_tau2_grpo_tmux.sh
+
+# τ²-bench with InfoPO's published hyperparameters, for a comparable run
+bash scripts/launch_tau2_infopo_aligned.sh
 ```
 
 τ²-bench evaluation, scoring against published numbers, and the trajectory viewer:

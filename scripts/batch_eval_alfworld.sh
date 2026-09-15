@@ -3,9 +3,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CODE_DIR="${ROOT}/AgentGym-RL"
+CODE_DIR="${ROOT}/src"
 CONDA_SH="${CONDA_SH:-/opt/conda/etc/profile.d/conda.sh}"
-TRAIN_ENV="${TRAIN_ENV:-/inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/cy/conda_envs/agentgym-rl}"
+TRAIN_ENV="${TRAIN_ENV:?set TRAIN_ENV to the agentgym-rl conda env}"
 
 ENV_ADDR="${ENV_ADDR:-http://127.0.0.1:36001}"
 CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
@@ -24,12 +24,12 @@ N_SAMPLES="${N_SAMPLES:-1}"
 # Preferred high-concurrency batch size. Per-model auto-fallback is applied if OOM.
 EVAL_BATCH_SIZE="${EVAL_BATCH_SIZE:-64}"
 
-BASE_3B_MODEL_PATH="${BASE_3B_MODEL_PATH:-/inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/ziyu/.cache/huggingface/hub/models--Qwen--Qwen2.5-3B-Instruct}"
-BASE_7B_MODEL_PATH="${BASE_7B_MODEL_PATH:-/inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/ziyu/.cache/huggingface/hub/models--Qwen--Qwen2.5-7B-Instruct/snapshots/a09a35458c702b33eeacc393d103063234e8bc28}"
+BASE_3B_MODEL_PATH="${BASE_3B_MODEL_PATH:-Qwen/Qwen2.5-3B-Instruct}"
+BASE_7B_MODEL_PATH="${BASE_7B_MODEL_PATH:-Qwen/Qwen2.5-7B-Instruct}"
 CKPT_ROOT_3B="${CKPT_ROOT_3B:-${ROOT}/checkpoints/alfworld_grpo_qwen2.5_3b_wm_clip_20260420_025703}"
 CKPT_ROOT_7B="${CKPT_ROOT_7B:-${ROOT}/checkpoints/alfworld_grpo_qwen2.5_3b_add_20260506_100312}"
 
-EVAL_DATA_DIR="${EVAL_DATA_DIR:-${ROOT}/AgentItemId/test}"
+EVAL_DATA_DIR="${EVAL_DATA_DIR:-${ROOT}/data/test}"
 EVAL_TEST_FILE="${EVAL_TEST_FILE:-${EVAL_DATA_DIR}/alfworld_test.json}"
 
 # Keep runtime files out of /home and /tmp.

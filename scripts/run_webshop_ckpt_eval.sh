@@ -6,9 +6,9 @@
 # can be reported incrementally.
 set -uo pipefail
 
-ROOT="/inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/cy/AgentGym-RL"
-TRAIN_ENV="/inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/cy/conda_envs/agentgym-rl"
-WS_ENV="/inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/cy/conda_envs/agentenv-webshop"
+ROOT="${ROOT}"
+TRAIN_ENV="${TRAIN_ENV:?set TRAIN_ENV to the agentgym-rl conda env}"
+WS_ENV="${WS_ENV:?set WS_ENV to the agentenv-webshop conda env}"
 BASE_PORT="${BASE_PORT:-36101}"
 N_SERVERS="${N_SERVERS:-16}"
 CONCURRENCY="${CONCURRENCY:-16}"

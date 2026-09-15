@@ -5,7 +5,7 @@ export VLLM_ATTENTION_BACKEND=XFORMERS
 
 task_name="sciworld"
 
-cd AgentGym-RL
+cd "$(git rev-parse --show-toplevel)/src"
 source activate
 conda activate agentgym-rl
 export VLLM_ATTENTION_BACKEND=XFORMERS
@@ -41,7 +41,7 @@ HYDRA_FULL_ERROR=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True WANDB_MODE=o
     algorithm.rounds_ctrl.type=scaling_inter_stepwise \
     algorithm.rounds_ctrl.steps_scaling_inter=100 \
     algorithm.rounds_ctrl.rounds=[10,20,30] \
-    data.train_file=AgentItemId/${task_name}_train.json \
+    data.train_file=../data/${task_name}_train.json \
     data.train_batch_size=${train_batch_size} \
     data.max_prompt_length=1024 \
     data.max_response_length=8192 \

@@ -39,7 +39,7 @@ $P install -e tau2-bench
 $P install -e AgentGym/agentenv-tau2
 $P install gymnasium          # tau2's gym module needs it; not a tau2 core dep
 
-# 3. item-id dataset (AgentItemId/ is gitignored, so regenerate per checkout)
+# 3. item-id dataset
 ${TAU2_ENV_DEFAULT}/bin/python - <<'PY'
 import json
 from tau2.registry import registry
@@ -47,7 +47,7 @@ for split in ["train", "test"]:
     tasks = registry.get_tasks_loader("retail")(split)
     rows = [{"item_id": f"tau2_{i}", "task_type": "retail", "task_id": t.id}
             for i, t in enumerate(tasks)]
-    with open(f"AgentGym-RL/AgentItemId/tau2_retail_{split}.json", "w") as f:
+    with open(f"data/tau2_retail_{split}.json", "w") as f:
         json.dump(rows, f, indent=2)
     print(split, len(rows))
 PY

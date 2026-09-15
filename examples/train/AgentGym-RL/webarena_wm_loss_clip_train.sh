@@ -6,7 +6,7 @@ export VLLM_ATTENTION_BACKEND=XFORMERS
 
 task_name="webarena"
 
-cd AgentGym-RL
+cd "$(git rev-parse --show-toplevel)/src"
 source activate
 conda activate agentgym-rl
 export VLLM_ATTENTION_BACKEND=XFORMERS
@@ -42,7 +42,7 @@ HYDRA_FULL_ERROR=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True WANDB_MODE=o
     algorithm.adv_estimator=grpo \
     algorithm.rounds_ctrl.type=fixed \
     algorithm.rounds_ctrl.rounds=15 \
-    data.train_file=AgentItemId/train/${task_name}_train.json \
+    data.train_file=../data/train/${task_name}_train.json \
     data.train_batch_size=${train_batch_size} \
     data.max_prompt_length=750 \
     data.max_response_length=14098 \

@@ -10,9 +10,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TRAIN_CODE_DIR="${ROOT}/AgentGym-RL"
+TRAIN_CODE_DIR="${ROOT}/src"
 CONDA_SH="${CONDA_SH:-/opt/conda/etc/profile.d/conda.sh}"
-TRAIN_ENV="${TRAIN_ENV:-${TRAIN_ENV}}"
+TRAIN_ENV="${TRAIN_ENV:?set TRAIN_ENV to the training conda env}"
 MODEL_PATH="${MODEL_PATH:?set MODEL_PATH to the policy model}"
 TASK_NAME="tau2"
 
@@ -88,7 +88,7 @@ RUN_DIR="${RUN_DIR:-${ROOT}/runlogs/${EXP_NAME}}"
 CKPT_DIR="${CKPT_DIR:-${ROOT}/checkpoints/${EXP_NAME}}"
 ROLLOUT_LOG_DIR="${ROLLOUT_LOG_DIR:-${RUN_DIR}/rollout_logs}"
 # Must have been generated from the same domain/split the env servers were started with.
-TRAIN_FILE="${TRAIN_FILE:-${TRAIN_CODE_DIR}/AgentItemId/tau2_retail_train.json}"
+TRAIN_FILE="${TRAIN_FILE:-${ROOT}/data/tau2_retail_train.json}"
 LOG_PATH="${LOG_PATH:-}"
 
 mkdir -p "${CKPT_DIR}" "${RUN_DIR}" "${ROLLOUT_LOG_DIR}"

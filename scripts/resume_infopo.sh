@@ -24,11 +24,11 @@ TOTAL_EPOCHS=10,MAX_ROUNDS=50,TAU2_MAX_STEPS=200,MAX_PROMPT_LENGTH=8192,\
 MAX_RESPONSE_LENGTH=16384,MAX_TOKENS_PER_TURN=1024,POLICY_LR=1e-6,USE_KL_LOSS=False,\
 KL_COEF=0,ENTROPY_COEF=0.001,ROLLOUT_GPU_MEMORY_UTILIZATION=0.50,ENVS_PER_GPU=4,\
 SAVE_FREQ=50,EXP_NAME=tau2_infopo_align,\
-TRAIN_FILE=${PROJECT_ROOT}/AgentGym-RL/AgentItemId/tau2_retail-airline-telecom_train.json \
+TRAIN_FILE=${PROJECT_ROOT}/data/tau2_retail-airline-telecom_train.json \
   scripts/sbatch_tau2_grpo.sh
 
 === 3. evaluate a checkpoint against the paper's table ===
-# Merge FSDP shards to HF first (scripts/model_merger.py in AgentGym-RL), then:
+# Merge FSDP shards to HF first (scripts/model_merger.py), then:
 sbatch --gres=gpu:a100:2 --time=12:00:00 \
   --export=ALL,TAU2_VERSION=infopo,TAG=trained,MODEL_PATH=<hf-ckpt>,\
 DOMAINS="airline retail telecom",NUM_TRIALS=4,MAX_STEPS=200,MAX_CONCURRENCY=16 \

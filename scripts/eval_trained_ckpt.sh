@@ -37,7 +37,7 @@ if [[ ! -f "${HF}/model.safetensors.index.json" ]]; then
   for f in config.json generation_config.json tokenizer.json tokenizer_config.json vocab.json merges.txt; do
     [[ -f "${BASE_MODEL}/${f}" ]] && cp -n "${BASE_MODEL}/${f}" "${HF}/" || true
   done
-  ( cd "${ROOT}/AgentGym-RL" && PYTHONNOUSERSITE=1 HF_HOME="${ROOT}/.hf_cache" \
+  ( cd "${ROOT}/src" && PYTHONNOUSERSITE=1 HF_HOME="${ROOT}/.hf_cache" \
     ${TRAIN_ENV}/bin/python scripts/model_merger.py --local_dir "${ACTOR}" )
 else
   echo "--- already merged ---"

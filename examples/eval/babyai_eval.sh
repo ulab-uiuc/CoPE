@@ -5,7 +5,7 @@ export VLLM_ATTENTION_BACKEND=XFORMERS
 
 task_name="babyai"
 
-cd AgentGym-RL
+cd "$(git rev-parse --show-toplevel)/src"
 source activate
 conda activate agentgym-rl
 export VLLM_ATTENTION_BACKEND=XFORMERS
@@ -18,12 +18,12 @@ max_rounds=20
 ckpt_path="global_step_150/actor"
 model_path=${ckpt_path}/huggingface
 
-cd AgentGym-RL/scripts
-python model_merger.py \
+cd "$(git rev-parse --show-toplevel)"
+python scripts/model_merger.py \
     --local_dir ${ckpt_path}
 
 HYDRA_FULL_ERROR=1 python3 -m verl.agent_trainer.main_generation  \
-    data.path=AgentItemId/test \
+    data.path=../data/test \
     data.max_prompt_length=512 \
     data.max_response_length=8192 \
     data.n_samples=${sample_num} \

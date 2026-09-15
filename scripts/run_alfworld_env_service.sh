@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONDA_SH="${CONDA_SH:-/opt/conda/etc/profile.d/conda.sh}"
-ALFWORLD_ENV="${ALFWORLD_ENV:-/inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/cy/conda_envs/agentenv-alfworld}"
+ALFWORLD_ENV="${ALFWORLD_ENV:?set ALFWORLD_ENV to the agentenv-alfworld conda env}"
 HOST="${HOST:-127.0.0.1}"
 BASE_PORT="${BASE_PORT:-36001}"
 NUM_ENVS="${NUM_ENVS:-1}"
@@ -21,7 +21,7 @@ set +u
 conda activate "${ALFWORLD_ENV}"
 set -u
 
-export ALFWORLD_DATA="${ALFWORLD_DATA:-/inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/ziyu/.cache/alfworld}"
+export ALFWORLD_DATA="${ALFWORLD_DATA:-${ALFWORLD_DATA:?set ALFWORLD_DATA to the alfworld data cache}}"
 export NO_PROXY="${NO_PROXY:-127.0.0.1,localhost}"
 export no_proxy="${no_proxy:-127.0.0.1,localhost}"
 

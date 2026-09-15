@@ -4,8 +4,8 @@
 # have been logged, kill everything, then parse timing_s/gen and timing_s/step.
 set -uo pipefail
 
-ROOT="/inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/cy/AgentGym-RL"
-W="/inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/cy/conda_envs/agentenv-webshop"
+ROOT="${ROOT}"
+W="${WEBSHOP_ENV:?set WEBSHOP_ENV to the agentenv-webshop conda env}"
 NGPU=4
 N_STEPS="${N_STEPS:-4}"          # collect this many training steps per arm
 MAX_WAIT="${MAX_WAIT:-2400}"     # per-arm wall-clock cap (s)
