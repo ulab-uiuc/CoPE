@@ -63,7 +63,9 @@ from each benchmark's own task list rather than authored here.
 
 ```bash
 git clone --recurse-submodules https://github.com/ulab-uiuc/CoPE.git
-# environments other than tau2 come from the AgentGym submodule
+# the AgentGym submodule carries every environment server except tau2, and the
+# agentenv base classes that tau2's own client subclasses -- so it is required
+# even for a tau2-only run
 git submodule update --init AgentGym
 ```
 

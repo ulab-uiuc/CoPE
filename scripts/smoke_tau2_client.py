@@ -17,7 +17,7 @@ import argparse
 import sys
 
 from agentenv.envs import Tau2EnvClient
-from agentenv.envs.tau2 import _clean_action
+from envs.tau2.tau2_client import _clean_action
 
 
 def check_clean_action() -> list[str]:
