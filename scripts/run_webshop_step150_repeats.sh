@@ -5,8 +5,8 @@
 # Reuses env servers already listening on BASE_PORT..BASE_PORT+N_SERVERS-1.
 set -uo pipefail
 
-ROOT="/inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/cy/AgentGym-RL"
-TRAIN_ENV="/inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/cy/conda_envs/agentgym-rl"
+ROOT="${ROOT}"
+TRAIN_ENV="${TRAIN_ENV:?set TRAIN_ENV to the agentgym-rl conda env}"
 BASE_PORT="${BASE_PORT:-36101}"
 N_SERVERS="${N_SERVERS:-16}"
 CONCURRENCY="${CONCURRENCY:-16}"

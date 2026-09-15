@@ -4,11 +4,11 @@
 # advancing to the next when one finishes.
 set -uo pipefail
 
-ROOT="/inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/cy/AgentGym-RL"
+ROOT="${ROOT}"
 ENV_ADDRS="http://127.0.0.1:36101,http://127.0.0.1:36102,http://127.0.0.1:36103,http://127.0.0.1:36104"
 
 source /opt/conda/etc/profile.d/conda.sh
-conda activate /inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/cy/conda_envs/agentgym-rl
+conda activate "${TRAIN_ENV:?set TRAIN_ENV to the agentgym-rl conda env}"
 
 SUMMARY="${ROOT}/runs/sciworld_ckpt_eval_summary.txt"
 mkdir -p "${ROOT}/runs"

@@ -211,7 +211,7 @@ BASE_PORT="${BASE_PORT}" \
 MODEL_PATH="${MODEL_PATH}" \
 EXP_NAME="${EXP_NAME}" \
 RUN_DIR="${RUN_DIR}" \
-TRAIN_FILE="${TRAIN_FILE:-${ROOT}/AgentGym-RL/AgentItemId/tau2_${TAU2_DOMAIN}_${TAU2_TASK_SPLIT}.json}" \
+TRAIN_FILE="${TRAIN_FILE:-${ROOT}/data/tau2_${TAU2_DOMAIN}_${TAU2_TASK_SPLIT}.json}" \
   bash "${ROOT}/scripts/run_tau2_grpo_train.sh" 2>&1 | tee "${RUN_DIR}/train.log"
 
 echo "=== done ==="

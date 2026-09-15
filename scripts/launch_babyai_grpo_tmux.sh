@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE_PORT="${BASE_PORT:-8000}"
 CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
-MODEL_PATH="${MODEL_PATH:-/inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/ziyu/.cache/huggingface/hub/models--Qwen--Qwen2.5-3B-Instruct}"
+MODEL_PATH="${MODEL_PATH:-Qwen/Qwen2.5-3B-Instruct}"
 WANDB_MODE="${WANDB_MODE:-offline}"
 PROJECT_NAME="${PROJECT_NAME:-agentgym-babyai}"
 

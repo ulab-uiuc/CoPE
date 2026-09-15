@@ -7,13 +7,13 @@ TRAIN_CODE_DIR="${ROOT}/src"
 CONDA_SH="${CONDA_SH:-/opt/conda/etc/profile.d/conda.sh}"
 TRAIN_ENV="${TRAIN_ENV:?set TRAIN_ENV to the agentgym-rl conda env}"
 MODEL_PATH="${MODEL_PATH:-Qwen/Qwen2.5-7B-Instruct}"
-TASK_NAME="sciworld"
+TASK_NAME="babyai"
 
 export HF_HUB_OFFLINE=1
 export WANDB_MODE=offline
 
 ENV_ADDR_HOST="${ENV_ADDR_HOST:-127.0.0.1}"
-BASE_PORT="${BASE_PORT:-36101}"
+BASE_PORT="${BASE_PORT:-8000}"
 CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
 IFS=',' read -r -a GPU_ARRAY <<< "${CUDA_VISIBLE_DEVICES}"
 NUM_GPUS="${#GPU_ARRAY[@]}"
@@ -33,7 +33,7 @@ ENV_ADDR="${ENV_ADDR:-${ENV_ADDR_LIST}}"
 echo "Using ENV_ADDR: ${ENV_ADDR}"
 
 WANDB_MODE="${WANDB_MODE:-offline}"
-PROJECT_NAME="${PROJECT_NAME:-agentgym-sciworld}"
+PROJECT_NAME="${PROJECT_NAME:-agentgym-babyai}"
 
 KL_COEF="${KL_COEF:-0.001}"
 ENTROPY_COEF="${ENTROPY_COEF:-0.001}"
@@ -52,7 +52,7 @@ MAX_TOKENS_PER_TURN="${MAX_TOKENS_PER_TURN:-512}"
 ROLLOUT_GPU_MEMORY_UTILIZATION="${ROLLOUT_GPU_MEMORY_UTILIZATION:-0.80}"
 SAVE_FREQ="${SAVE_FREQ:-50}"
 
-ENABLE_ERC="${ENABLE_ERC:-1}"
+ENABLE_ERC="${ENABLE_ERC:-0}"
 ERC_MU_BASE="${ERC_MU_BASE:-1.0}"
 ERC_MU_EXP="${ERC_MU_EXP:-1.5}"
 ERC_ETA_WM="${ERC_ETA_WM:-2.0}"
@@ -92,7 +92,7 @@ SAFE_COMMIT_CLF_MAX_NEW="${SAFE_COMMIT_CLF_MAX_NEW:-24}"
 SAFE_COMMIT_GMAX="${SAFE_COMMIT_GMAX:-2.0}"
 SAFE_COMMIT_GMIN="${SAFE_COMMIT_GMIN:-0.5}"
 SAFE_COMMIT_RENORMALIZE="${SAFE_COMMIT_RENORMALIZE:-True}"
-WMLOSS_ADD_COEF="${WMLOSS_ADD_COEF:-0.2}"
+WMLOSS_ADD_COEF="${WMLOSS_ADD_COEF:-0.3}"
 WMLOSS_ADD_COEF_END="${WMLOSS_ADD_COEF_END:-0.1}"
 WMLOSS_ADD_HORIZON="${WMLOSS_ADD_HORIZON:-100}"
 WMLOSS_ADD_USE_ENTROPY="${WMLOSS_ADD_USE_ENTROPY:-True}"
@@ -161,8 +161,8 @@ PE_CREDIT_WINS_ONLY="${PE_CREDIT_WINS_ONLY:-True}"
 PE_CLF_ENV="${PE_CLF_ENV:-alfworld}"
 # Plan-forecast auxiliary SFT (DEFAULT OFF): each step predict the realized next-K
 # action commands (current included). Separate forward, CE loss * coef, no PG.
-PLAN_FORECAST_ENABLE="${PLAN_FORECAST_ENABLE:-False}"
-PLAN_FORECAST_COEF="${PLAN_FORECAST_COEF:-0}"
+PLAN_FORECAST_ENABLE="${PLAN_FORECAST_ENABLE:-True}"
+PLAN_FORECAST_COEF="${PLAN_FORECAST_COEF:-0.01}"
 PLAN_FORECAST_K="${PLAN_FORECAST_K:-3}"
 PLAN_FORECAST_GATE="${PLAN_FORECAST_GATE:-wins}"
 # --- Two ORTHOGONAL group knobs (compose; both distill successes only) ---
@@ -181,7 +181,7 @@ PLAN_FORECAST_GROUP_NORM="${PLAN_FORECAST_GROUP_NORM:-True}"
 # group_dedup (default True): when group_norm on, split each group's weight over its
 # DISTINCT successful action-sequences instead of per-trajectory -> duplicate rollouts
 # don't inflate weight (within-group action repetition is heavy mid/late training).
-PLAN_FORECAST_GROUP_DEDUP="${PLAN_FORECAST_GROUP_DEDUP:-True}"
+PLAN_FORECAST_GROUP_DEDUP="${PLAN_FORECAST_GROUP_DEDUP:-False}"
 # Horizon-growth schedule (curriculum): grow the forecast target length over
 # training. Format "startStep:kMin:kMax,..." (start-step semantics, last stage
 # persists); each per-step sample draws k uniformly in the active [kMin,kMax] and
@@ -236,7 +236,7 @@ THINK_REMINDER_ENABLE="${THINK_REMINDER_ENABLE:-False}"
 # HCA action-only ρ scoring: score on the action tokens (after the
 # delimiter) instead of the whole Thought+Action turn. Default OFF.
 
-WMC_COEFF="${WMC_COEFF:-0.01}"
+WMC_COEFF="${WMC_COEFF:-0}"
 WMC_TYPE="${WMC_TYPE:-fixed}"
 WMC_START_COEFF="${WMC_START_COEFF:-0.001}"
 WMC_END_COEFF="${WMC_END_COEFF:-0.0}"
@@ -252,7 +252,7 @@ WM_MAX_LENGTH="${WM_MAX_LENGTH:-4096}"
 WM_MAX_SAMPLES_PER_TRAJECTORY="${WM_MAX_SAMPLES_PER_TRAJECTORY:-null}"
 WM_MIN_ENV_TOKENS="${WM_MIN_ENV_TOKENS:-1}"
 
-EXP_NAME="${EXP_NAME:-sciworld_grpo_reb_r2_$(date -u +%Y%m%d_%H%M%S)}"
+EXP_NAME="${EXP_NAME:-babyai_grpo_qwen2.5_3b_$(date -u +%Y%m%d_%H%M%S)}"
 CKPT_DIR="${CKPT_DIR:-${ROOT}/checkpoints/${EXP_NAME}}"
 RUN_DIR="${RUN_DIR:-${ROOT}/runlogs/${EXP_NAME}}"
 # Checkpoint resume. 'auto' (default): auto-resume from the latest global_step_* in
@@ -263,7 +263,7 @@ RUN_DIR="${RUN_DIR:-${ROOT}/runlogs/${EXP_NAME}}"
 # 'disable' to force from-scratch.
 RESUME_MODE="${RESUME_MODE:-auto}"
 ROLLOUT_LOG_DIR="${ROLLOUT_LOG_DIR:-${RUN_DIR}/rollout_logs}"
-TRAIN_FILE="${TRAIN_FILE:-${ROOT}/data/train/sciworld_train.json}"
+TRAIN_FILE="${TRAIN_FILE:-${ROOT}/data/train/babyai_train.json}"
 LOG_PATH="${LOG_PATH:-}"
 
 mkdir -p "${CKPT_DIR}" "${RUN_DIR}" "${ROLLOUT_LOG_DIR}"

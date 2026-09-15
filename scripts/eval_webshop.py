@@ -41,7 +41,7 @@ except ImportError:
 
 # Defaults
 DEFAULT_TEST_FILE = (
-    REPO_ROOT / "AgentItemId" / "test" / "webshop_test.json"
+    REPO_ROOT / "data" / "test" / "webshop_test.json"
 )
 DEFAULT_MAX_ROUNDS = 15
 DEFAULT_MAX_TOKENS = 512
@@ -81,14 +81,14 @@ class LocalModel:
         print(f"[merge] Weights missing in {model_path}, attempting to merge shards from {actor_dir}...")
         import subprocess
         # Correct path to model_merger.py based on repository structure
-        merger_script = REPO_ROOT / "AgentGym-RL" / "scripts" / "model_merger.py"
+        merger_script = REPO_ROOT / "scripts" / "model_merger.py"
         if not merger_script.exists():
             print(f"ERROR: Merger script not found at {merger_script}")
             return
             
         try:
             # Force the working directory to the training code dir where the script expects to run
-            train_code_dir = REPO_ROOT / "AgentGym-RL"
+            train_code_dir = REPO_ROOT / "src"
             subprocess.check_call([
                 sys.executable, str(merger_script),
                 "--local_dir", str(actor_dir)

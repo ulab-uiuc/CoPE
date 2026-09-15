@@ -3,10 +3,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TRAIN_CODE_DIR="${ROOT}/AgentGym-RL"
+TRAIN_CODE_DIR="${ROOT}/src"
 CONDA_SH="${CONDA_SH:-/opt/conda/etc/profile.d/conda.sh}"
-TRAIN_ENV="${TRAIN_ENV:-/inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/cy/conda_envs/agentgym-rl}"
-MODEL_PATH="${MODEL_PATH:-/inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/ziyu/.cache/huggingface/hub/models--Qwen--Qwen2.5-7B-Instruct/snapshots/a09a35458c702b33eeacc393d103063234e8bc28}"
+TRAIN_ENV="${TRAIN_ENV:?set TRAIN_ENV to the agentgym-rl conda env}"
+MODEL_PATH="${MODEL_PATH:-Qwen/Qwen2.5-7B-Instruct}"
 TASK_NAME="webshop"
 
 export HF_HUB_OFFLINE=1
@@ -263,7 +263,7 @@ EXP_NAME="${EXP_NAME:-webshop_grpo_reb_r2_$(date -u +%Y%m%d_%H%M%S)}"
 CKPT_DIR="${CKPT_DIR:-${ROOT}/checkpoints/${EXP_NAME}}"
 RUN_DIR="${RUN_DIR:-${ROOT}/runlogs/${EXP_NAME}}"
 ROLLOUT_LOG_DIR="${ROLLOUT_LOG_DIR:-${RUN_DIR}/rollout_logs}"
-TRAIN_FILE="${TRAIN_FILE:-${ROOT}/AgentItemId/train/webshop_train.json}"
+TRAIN_FILE="${TRAIN_FILE:-${ROOT}/data/train/webshop_train.json}"
 LOG_PATH="${LOG_PATH:-}"
 
 mkdir -p "${CKPT_DIR}" "${RUN_DIR}" "${ROLLOUT_LOG_DIR}"
