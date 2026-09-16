@@ -133,12 +133,12 @@ EXPORTS="${EXPORTS},ENVS_PER_GPU=${ENVS_PER_GPU},SAVE_FREQ=${SAVE_FREQ}"
 EXPORTS="${EXPORTS},MODEL_PATH=${MODEL_PATH},EXP_NAME=${EXP_NAME},RESUME_MODE=disable"
 EXPORTS="${EXPORTS},TRAIN_FILE=${TRAIN_FILE}"
 
-# Anything else already set in this shell (plan-forecast, wmc-erc, ...) rides along, so
+# Anything else already set in this shell (plan-forecast, info-grpo, ...) rides along, so
 # an ablation is one extra variable rather than a forked copy of this script.
 for v in PLAN_FORECAST_ENABLE PLAN_FORECAST_COEF PLAN_FORECAST_K PLAN_FORECAST_TARGET \
-         PLAN_FORECAST_GATE PLAN_FORECAST_MAX_LENGTH PLAN_FORECAST_SEQ \
-         PLAN_INLINE_ENABLE PLAN_INLINE_K WMC_COEFF GRPO_FILTER_DEGENERATE \
-         INFO_INTRINSIC_WEIGHT INFO_GATE_TEMP INFO_KL_BATCH INFO_MAX_TURNS; do
+         PLAN_FORECAST_GATE PLAN_FORECAST_MAX_LENGTH PLAN_FORECAST_SEQ PLAN_INLINE_ENABLE \
+         PLAN_INLINE_K GRPO_FILTER_DEGENERATE INFO_INTRINSIC_WEIGHT INFO_GATE_TEMP INFO_KL_BATCH \
+         INFO_MAX_TURNS; do
   if [ -n "${!v:-}" ]; then EXPORTS="${EXPORTS},${v}=${!v}"; fi
 done
 

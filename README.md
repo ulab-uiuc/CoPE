@@ -8,9 +8,7 @@ trajectory-level reward these benchmarks provide:
 
 | module | idea |
 |---|---|
-| `src/verl/agent_trainer/ppo/world_model_loss.py` | predict the next observation; the loss on that prediction is an auxiliary objective |
 | `src/verl/agent_trainer/ppo/plan_forecast.py` | forecast the plan ahead of acting and score the agent against it |
-| `src/verl/agent_trainer/ppo/wmc_erc.py` | world-model consistency + entropy-regularised clipping |
 | `src/verl/trainer/ppo/info_grpo.py` | turn-level information gain from a masked-feedback counterfactual |
 
 All of them are additive. With every flag off the training path is the stock GRPO one,
@@ -35,14 +33,15 @@ pytest tests/test_additive.py
 | τ²-bench | ✓ | ✓ | ✓ |
 
 Two baselines are configured alongside the method: `examples/train/AgentGym-RL/` and
-`examples/train/ScalingInter-RL/`. Method variants appear as suffixes —
-`_wm_loss`, `_wm_loss_clip`, `_wmc_erc_only`.
+`examples/train/ScalingInter-RL/`. Method variants are driven by environment variables on
+the `scripts/run_*_grpo_train.sh` launchers — `PLAN_FORECAST_ENABLE`, `PLAN_INLINE_ENABLE`,
+`INFO_INTRINSIC_WEIGHT` — rather than by forked copies of the script.
 
 ## Layout
 
 ```
 src/verl/                 the training framework (fork of AgentGym-RL's verl)
-  agent_trainer/ppo/      world_model_loss, plan_forecast, wmc_erc, ray_trainer
+  agent_trainer/ppo/      plan_forecast, plan_format, sft_common, ray_trainer
   trainer/ppo/            info_grpo, intrinsic_reward, turn_structure
   workers/                actor, rollout, FSDP workers
 src/envs/tau2/            the τ²-bench environment server and client
@@ -96,8 +95,9 @@ conda create -y -p ./envs/tau2 python=3.12
 # a configured environment, baseline
 bash examples/train/AgentGym-RL/sciworld_train.sh
 
-# with the world-model loss and clipping
-bash examples/train/AgentGym-RL/sciworld_wm_loss_clip_train.sh
+# with the plan-forecast auxiliary loss
+PLAN_FORECAST_ENABLE=True PLAN_FORECAST_COEF=0.01 \
+  bash scripts/run_sciworld_grpo_train.sh
 
 # tmux launchers bring up env servers + training together
 bash scripts/launch_sciworld_grpo_tmux.sh

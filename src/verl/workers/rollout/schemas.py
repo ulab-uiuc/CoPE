@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-import re
 from typing import List, Literal
 from transformers import PreTrainedTokenizer
 import torch
@@ -22,78 +21,6 @@ class Message:
         return str(self.to_dict())
     def __str__(self):
         return self.__repr_
-
-
-# --- WM-SFT observation-target filtering (webshop) --------------------------------
-# WebShop search-result pages are ~68% of all observation tokens, and ~83% of THOSE are
-# product content (asin / title / price) drawn by BM25 over the catalog -- unpredictable
-# from (state, action), so training the world model to predict them is pure gradient
-# noise. This masks those fields OUT OF THE WM-SFT TARGET ONLY. The token ids fed to the
-# policy are untouched: the agent still sees every product, it is just no longer asked
-# to predict them.
-#
-# Verified over 368 real search-result pages: after the nav section the fields are
-# strictly a repeating [asin, title, price] triple (368/368) and every asin matches
-# ^B0[A-Z0-9]{8}$ (3660/3660). We still structurally re-validate per page and, on any
-# mismatch, fall back to NOT filtering that page (fail-safe: never mask wrongly).
-_WS_ASIN_RE = re.compile(r"^B0[A-Z0-9]{8}$")
-_WS_PRICE_RE = re.compile(r"^(Price:\s*)?\$[\d.]+( to \$[\d.]+)?$")
-_WS_PAGE_RE = re.compile(r"^Page \d+ \(Total results: \d+\)$")
-_WS_NAV = ("Next >", "< Prev")
-_WS_SEP = "[SEP]"
-
-
-def _webshop_obs_target_mask(content: str, tokenizer) -> tuple:
-    """Return (mask, n_dropped, n_total, failsafe) for one webshop observation.
-
-    ``mask[i]`` is 1 if content token i should be a WM-SFT target. Only search-result
-    pages are filtered; everything else keeps the current all-ones behaviour.
-    """
-    enc = tokenizer(content, add_special_tokens=False, return_offsets_mapping=True)
-    ids, offsets = enc["input_ids"], enc["offset_mapping"]
-    n = len(ids)
-    if "Total results:" not in content:          # not a search-result page -> unchanged
-        return [1] * n, 0, n, False
-
-    # character spans of each [SEP]-delimited field
-    spans, pos = [], 0
-    for raw in content.split(_WS_SEP):
-        start = pos
-        pos += len(raw) + len(_WS_SEP)
-        t = raw.strip()
-        if t:
-            off = raw.index(t)
-            spans.append((start + off, start + off + len(t), t))
-
-    # nav section ends at the last page-counter / Next> / <Prev field
-    nav_end = -1
-    for i, (_, _, t) in enumerate(spans):
-        if _WS_PAGE_RE.match(t) or t in _WS_NAV:
-            nav_end = i
-    tail = spans[nav_end + 1:]
-
-    # structural re-validation; bail out (keep everything) if the page is not the
-    # expected [asin, title, price]* layout
-    ok = nav_end >= 0 and len(tail) > 0 and len(tail) % 3 == 0
-    if ok:
-        for j in range(0, len(tail), 3):
-            if not _WS_ASIN_RE.match(tail[j][2]) or not _WS_PRICE_RE.match(tail[j + 2][2]):
-                ok = False
-                break
-    if not ok:
-        return [1] * n, 0, n, True
-
-    drop = [(a, b) for (a, b, _) in tail]
-    mask, dropped = [1] * n, 0
-    for i, (s0, s1) in enumerate(offsets):
-        if s1 <= s0:
-            continue
-        for a, b in drop:
-            if s0 < b and s1 > a:        # token overlaps a dropped field
-                mask[i] = 0
-                dropped += 1
-                break
-    return mask, dropped, n, False
 
 
 class RolloutHandler:
@@ -121,7 +48,6 @@ class RolloutHandler:
         response_observation_mask: List[int],
         max_response_len: int = 8192,
         max_model_len: int = 32768,
-        wm_obs_filter: bool = False,
     ):
         self.messages = messages
         self.task_name = task_name
@@ -145,11 +71,6 @@ class RolloutHandler:
         self.response_observation_mask = response_observation_mask
         self.max_response_len = max_response_len
         self.max_model_len = max_model_len  
-        # WM-SFT observation-target filtering (off by default; webshop only)
-        self.wm_obs_filter = wm_obs_filter
-        self.wm_obs_dropped = 0      # obs tokens excluded from the WM-SFT target
-        self.wm_obs_total = 0        # obs tokens seen (denominator for the metric)
-        self.wm_obs_failsafe = 0     # pages where the structure check bailed out
         self.format_config: dict = {
             "qwen": {
                 "assistat_prefix_msg": "\n<|im_start|>assistant\n",
@@ -222,17 +143,7 @@ class RolloutHandler:
         suffix_token_ids = tokenizer.encode(suffix_msg, add_special_tokens=False)
         content_token_ids = tokenizer.encode(content, add_special_tokens=False)
 
-        # WM-SFT target mask for this observation. Default = all ones (unchanged
-        # behaviour); only when wm_obs_filter is on AND this is webshop do we drop the
-        # unpredictable product fields. content_token_ids is NEVER modified.
         _content_obs_mask = [1] * len(content_token_ids)
-        if self.wm_obs_filter and str(self.task_name).lower() == "webshop":
-            _m, _drop, _tot, _fs = _webshop_obs_target_mask(content, tokenizer)
-            if len(_m) == len(content_token_ids):
-                _content_obs_mask = _m
-                self.wm_obs_dropped += _drop
-                self.wm_obs_failsafe += int(_fs)
-            self.wm_obs_total += _tot
 
         if self.input_ids[-len(prefix_token_ids) :] == prefix_token_ids:
             append_token_ids = content_token_ids
