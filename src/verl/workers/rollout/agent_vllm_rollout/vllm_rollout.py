@@ -199,7 +199,6 @@ class vLLMRollout(BaseRollout):
                     response_observation_mask=[],
                     max_response_len=self.config.response_length,
                     max_model_len=min(self.config.max_model_len, self.config.prompt_length + self.config.response_length),
-                    wm_obs_filter=bool(self.config.get('wm_obs_filter', False))
                 )
                 assert len(handler.input_ids) == len(handler.attention_mask) == len(handler.position_ids) == len(handler.loss_mask) == len(handler.observation_mask), f"RolloutHandler has mismatched length: input_ids={len(handler.input_ids)}, attention_mask={len(handler.attention_mask)}, position_ids={len(handler.position_ids)}, loss_mask={len(handler.loss_mask)}, observation_mask={len(handler.observation_mask)}"
                 handler_list.append(handler)
@@ -403,15 +402,6 @@ class vLLMRollout(BaseRollout):
         position_ids = torch.cat((position_ids, response_position_ids), dim=-1)
         response_mask = response_loss_mask
         observation_mask = response_attention_mask * (1 - response_mask)
-        # WM-SFT observation-filter telemetry: confirms the filter is actually on and
-        # how much of the target it removed (fail-safe hits should stay at 0).
-        _wm_tot = sum(getattr(h, 'wm_obs_total', 0) for h in rollout_handler_ls)
-        _wm_drop = sum(getattr(h, 'wm_obs_dropped', 0) for h in rollout_handler_ls)
-        _wm_fs = sum(getattr(h, 'wm_obs_failsafe', 0) for h in rollout_handler_ls)
-        wm_obs_metrics = {
-            'wm_obs/filtered_frac': (_wm_drop / _wm_tot) if _wm_tot else 0.0,
-            'wm_obs/failsafe_hits': float(_wm_fs),
-        }
 
         reward_tensor = torch.zeros_like(response_ids, dtype=torch.float32) # (bs, response_length)
         valid_response_length = attention_mask[:, prompt_length:].sum(dim=-1)
@@ -487,5 +477,4 @@ class vLLMRollout(BaseRollout):
         if self.config.free_cache_engine:
             self.inference_engine.free_cache_engine()
 
-        return DataProto(batch=batch, non_tensor_batch=non_tensor_batch,
-                         meta_info=wm_obs_metrics)
+        return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
