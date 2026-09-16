@@ -34,17 +34,7 @@ from verl.single_controller.base import Worker
 from verl.single_controller.ray import RayResourcePool, RayWorkerGroup, RayClassWithInitArgs
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.agent_trainer.ppo import core_algos
-from verl.agent_trainer.ppo.wmc_erc import (
-    apply_wmc_erc,
-    apply_wmc_erc_to_reward,
-    apply_hca_advantage,
-    apply_ref_nll_add_advantage,
-    compute_turn_boundaries,
-)
-from verl.agent_trainer.ppo.world_model_loss import (
-    DEFAULT_WORLD_MODEL_PROMPT,
-    build_world_model_sft_batch,
-)
+from verl.agent_trainer.ppo.turn_spans import compute_turn_boundaries
 from verl.agent_trainer.ppo.plan_forecast import (
     build_plan_forecast_batch,
     parse_k_schedule,
@@ -328,7 +318,14 @@ class StepRoundsScheduler(RoundsScheduler):
         return self.max_rounds
 
 
-class WorldModelCoeffScheduler(ABC):
+class CoeffScheduler(ABC):
+    """Anneal an auxiliary-loss coefficient over training steps.
+
+    Drive it either by calling ``step()`` once per step or by pushing the trainer's
+    own counter with ``set_global_steps`` — the latter also makes resume correct for
+    free, since the counter is restored from the checkpoint.
+    """
+
     @abstractmethod
     def step(self):
         raise NotImplementedError
@@ -342,7 +339,7 @@ class WorldModelCoeffScheduler(ABC):
         raise NotImplementedError
 
 
-class FixedWorldModelCoeffScheduler(WorldModelCoeffScheduler):
+class FixedCoeffScheduler(CoeffScheduler):
     def __init__(self, coeff: float):
         self.coeff = coeff
 
@@ -356,7 +353,7 @@ class FixedWorldModelCoeffScheduler(WorldModelCoeffScheduler):
         return self.coeff
 
 
-class LinearWorldModelCoeffScheduler(WorldModelCoeffScheduler):
+class LinearCoeffScheduler(CoeffScheduler):
     def __init__(self, start_coeff: float, end_coeff: float, horizon: int):
         self.start_coeff = start_coeff
         self.end_coeff = end_coeff
@@ -383,7 +380,7 @@ class LinearWorldModelCoeffScheduler(WorldModelCoeffScheduler):
         return self.current_coeff
 
 
-class PowerWorldModelCoeffScheduler(WorldModelCoeffScheduler):
+class PowerCoeffScheduler(CoeffScheduler):
     def __init__(self, start_coeff: float, end_coeff: float, horizon: int, power: float = 2.0):
         self.start_coeff = start_coeff
         self.end_coeff = end_coeff
@@ -412,7 +409,7 @@ class PowerWorldModelCoeffScheduler(WorldModelCoeffScheduler):
         return self.current_coeff
 
 
-class CutoffWorldModelCoeffScheduler(WorldModelCoeffScheduler):
+class CutoffCoeffScheduler(CoeffScheduler):
     def __init__(self, start_coeff: float, end_coeff: float, cutoff_step: int):
         self.start_coeff = start_coeff
         self.end_coeff = end_coeff
@@ -596,8 +593,6 @@ class RayPPOTrainer(object):
         self.resource_pool_manager = resource_pool_manager
         self.use_reference_policy = Role.RefPolicy in role_worker_mapping
         self.ray_worker_group_cls = ray_worker_group_cls
-        self.wmc_erc_config = OmegaConf.select(config, 'wmc_erc', default=None)
-        self.wmc_erc_running_stats = {}
 
         # define KL control
         if self.use_reference_policy:
@@ -624,45 +619,10 @@ class RayPPOTrainer(object):
         else:
             raise NotImplementedError
 
-        # Hindsight Credit Assignment (HCA) — see feature.md.
-        self.use_hindsight_hca = bool(
-            self.config.actor_rollout_ref.actor.get('use_hindsight_hca', False))
-        # HCAPO (training-free generative verification) hyperparameters.
-        _a = self.config.actor_rollout_ref.actor
-        self.hca_ratio_clip_min = float(_a.get('hca_ratio_clip_min', 0.8))
-        self.hca_ratio_clip_max = float(_a.get('hca_ratio_clip_max', 1.2))
-        self.hca_temp = float(_a.get('hca_temp', 5.0))
-        self.hca_omega = float(_a.get('hca_omega', 1.0))
-        self.hca_gamma = float(_a.get('hca_gamma', 0.95))
-        self.hca_smooth_alpha = float(_a.get('hca_smooth_alpha', 0.5))
-        self.hca_z_threshold = float(_a.get('hca_z_threshold', 0.5))
-        # HCAPO-aligned per-step LOCAL injection (paper §4.2). Default OFF keeps the
-        # old single-front-injection path; ON reconstructs truncated per-step prompts
-        # so π_hind actually carries the hindsight signal (not cancelled by ÷π̄).
-        self.hca_perstep = bool(_a.get('hca_perstep', False))
-
-        # Safe-commit TEXT gate (default OFF). When on, classify each scored turn's
-        # outcome predictability (text classifier) and AND it with low action-entropy
-        # to build the per-turn safe_commit_w consumed by clipping_method='safe_commit'.
-        _w = self.wmc_erc_config
-        self.safe_commit_text_gate = bool(_w.get('safe_commit_text_gate', False)) if _w else False
-        self.safe_commit_gate_mode = str(_w.get('safe_commit_gate_mode', 'and')) if _w else 'and'
-        self.safe_commit_clf_env = str(_w.get('safe_commit_clf_env', 'alfworld')) if _w else 'alfworld'
-        self.safe_commit_clf_max_new = int(_w.get('safe_commit_clf_max_new_tokens', 24)) if _w else 24
-        self.safe_commit_clf_wins_only = bool(_w.get('safe_commit_clf_wins_only', True)) if _w else True
-
-        # Progress/Exploration credit (default OFF): classify P/E steps per trajectory
-        # and add an all-positive advantage bonus (omega_p on progress, omega_e on
-        # exploration; P>E; P/E overlap -> P). Applied on winning trajectories.
-        _pa = self.config.actor_rollout_ref.actor
-        self.pe_credit_enable = bool(_pa.get('pe_credit_enable', False))
-        self.pe_omega_progress = float(_pa.get('pe_omega_progress', 0.5))
-        self.pe_omega_explore = float(_pa.get('pe_omega_explore', 0.2))
-        self.pe_credit_wins_only = bool(_pa.get('pe_credit_wins_only', True))
-
         # Plan FORMAT reward (default OFF): per-turn shaping bonus on the advantage
         # for emitting a well-formed Thought->Plan->Action turn, to counter the
         # decay of inline-plan behaviour under RL.
+        _pa = self.config.actor_rollout_ref.actor
         self.plan_format_reward_enable = bool(_pa.get('plan_format_reward_enable', False))
         self.plan_format_reward_coef = float(_pa.get('plan_format_reward_coef', 0.05))
         self.plan_format_reward_baseline = float(_pa.get('plan_format_reward_baseline', 0.5))
@@ -797,38 +757,8 @@ class RayPPOTrainer(object):
             raise NotImplementedError
         print(f'Total training steps: {self.total_training_steps}')
 
-        # World-model coefficient scheduler
-        wm_coeff_config = self.config.algorithm.get('world_model_coeff_ctrl', None)
-        if wm_coeff_config is None or wm_coeff_config.type == 'fixed':
-            init_coeff = self.config.actor_rollout_ref.actor.get('world_model_coeff', 0.0)
-            if wm_coeff_config is not None:
-                init_coeff = wm_coeff_config.get('coeff', init_coeff)
-            self.world_model_coeff_scheduler = FixedWorldModelCoeffScheduler(coeff=init_coeff)
-        elif wm_coeff_config.type == 'linear':
-            self.world_model_coeff_scheduler = LinearWorldModelCoeffScheduler(
-                start_coeff=wm_coeff_config.start_coeff,
-                end_coeff=wm_coeff_config.end_coeff,
-                horizon=wm_coeff_config.horizon
-            )
-        elif wm_coeff_config.type == 'power':
-            self.world_model_coeff_scheduler = PowerWorldModelCoeffScheduler(
-                start_coeff=wm_coeff_config.start_coeff,
-                end_coeff=wm_coeff_config.end_coeff,
-                horizon=wm_coeff_config.horizon,
-                power=wm_coeff_config.get('power', 2.0)
-            )
-        elif wm_coeff_config.type == 'cutoff':
-            self.world_model_coeff_scheduler = CutoffWorldModelCoeffScheduler(
-                start_coeff=wm_coeff_config.start_coeff,
-                end_coeff=wm_coeff_config.get('end_coeff', 0.0),
-                cutoff_step=wm_coeff_config.cutoff_step
-            )
-        else:
-            raise NotImplementedError
-
-        # Plan-forecast coefficient scheduler (anneal plan_forecast_coef).
-        # Reuses the generic coeff schedulers above. Knobs live on the actor
-        # config next to the other plan_forecast_* settings.
+        # Plan-forecast coefficient scheduler (anneal plan_forecast_coef). Knobs live
+        # on the actor config next to the other plan_forecast_* settings.
         self.plan_forecast_coeff_scheduler = self._build_plan_forecast_scheduler()
 
         # plan_forecast and the sft-ablation (RFT) control are MUTUALLY EXCLUSIVE:
@@ -842,14 +772,6 @@ class RayPPOTrainer(object):
         # Parsed once here so a malformed spec fails fast at init instead of being
         # swallowed by the forecast dispatch's try/except at every step.
         self._pf_k_stages = parse_k_schedule(str(_acfg.get('plan_forecast_k_schedule', '') or ''))
-
-        # traj_lm (full-sequence next-token CE over obs AND response) and WM-SFT
-        # (obs-only CE) are MUTUALLY EXCLUSIVE — traj_lm already covers the obs tokens.
-        if float(_acfg.get('traj_lm_coef', 0.0)) > 0 and (
-                float(_acfg.get('world_model_coeff', 0.0)) > 0
-                or bool((_acfg.get('world_model', None) or {}).get('enable', False))):
-            raise ValueError("traj_lm_coef and WM-SFT (world_model_coeff>0 or "
-                             "world_model.enable) are mutually exclusive — enable at most one.")
 
         OmegaConf.set_struct(self.config, True)
         with open_dict(self.config):
@@ -998,7 +920,6 @@ class RayPPOTrainer(object):
         # set global step
         self.global_steps = int(global_step_folder.split('global_step_')[-1])
         self.rounds_scheduler.set_global_steps(self.global_steps)
-        self.world_model_coeff_scheduler.set_global_steps(self.global_steps)
 
         print(f'Setting global step to {self.global_steps}')
         print(f'Resuming from {global_step_folder}')
@@ -1020,51 +941,9 @@ class RayPPOTrainer(object):
         if isinstance(self.train_dataloader.dataset, RLHFDataset):
             self.train_dataloader.dataset.resume_dataset_state()
 
-    def _build_world_model_sft_dataproto(self, batch: DataProto):
-        """Build a DataProto of env-prediction SFT samples from rollout messages.
-
-        Only ever called from the enable-gated separate WM-SFT dispatch, so it does
-        NOT re-check the enable/coef switch here (that guard was dead code once the
-        dispatch became enable-gated). Returns ``None`` when the rollout did not
-        expose ``rollout_messages`` or no env turn qualifies as an SFT target.
-        """
-        wm_cfg = self.config.actor_rollout_ref.actor.get('world_model', None)
-        if wm_cfg is None:
-            return None
-
-        messages_list = batch.non_tensor_batch.get('rollout_messages', None)
-        if messages_list is None:
-            return None
-
-        # C3 placebo (WM-value experiment): shuffle obs targets — same tokens/loss,
-        # no real dynamics signal. Default off => normal WM-SFT untouched.
-        if bool(wm_cfg.get('placebo_shuffle', False)):
-            from verl.agent_trainer.ppo.world_model_loss import build_world_model_placebo_batch
-            assembled = build_world_model_placebo_batch(
-                messages_list=list(messages_list),
-                tokenizer=self.tokenizer,
-                env_predict_prompt=wm_cfg.get('env_predict_prompt', None) or DEFAULT_WORLD_MODEL_PROMPT,
-                max_length=int(wm_cfg.get('max_length', 4096)),
-                max_samples_per_trajectory=wm_cfg.get('max_samples_per_trajectory', None),
-                min_env_tokens=int(wm_cfg.get('min_env_tokens', 1)),
-                seed=int(self.global_steps),
-            )
-        else:
-            assembled = build_world_model_sft_batch(
-                messages_list=list(messages_list),
-                tokenizer=self.tokenizer,
-                env_predict_prompt=wm_cfg.get('env_predict_prompt', None) or DEFAULT_WORLD_MODEL_PROMPT,
-                max_length=int(wm_cfg.get('max_length', 4096)),
-                max_samples_per_trajectory=wm_cfg.get('max_samples_per_trajectory', None),
-                min_env_tokens=int(wm_cfg.get('min_env_tokens', 1)),
-            )
-        if assembled is None:
-            return None
-        return DataProto.from_single_dict(assembled)
-
     def _build_plan_forecast_scheduler(self):
         """Coeff scheduler for plan_forecast_coef. anneal in {fixed,linear,power,
-        cutoff}; reuses the generic *WorldModelCoeffScheduler classes. start =
+        cutoff}; reuses the generic *CoeffScheduler classes. start =
         plan_forecast_coef."""
         actor_cfg = self.config.actor_rollout_ref.actor
         anneal = str(actor_cfg.get('plan_forecast_coef_anneal', 'fixed')).lower()
@@ -1072,14 +951,14 @@ class RayPPOTrainer(object):
         end = float(actor_cfg.get('plan_forecast_coef_end', 0.0))
         horizon = int(actor_cfg.get('plan_forecast_coef_horizon', 0))
         if anneal in ('fixed', 'none', ''):
-            return FixedWorldModelCoeffScheduler(coeff=start)
+            return FixedCoeffScheduler(coeff=start)
         if anneal == 'linear':
-            return LinearWorldModelCoeffScheduler(start_coeff=start, end_coeff=end, horizon=horizon)
+            return LinearCoeffScheduler(start_coeff=start, end_coeff=end, horizon=horizon)
         if anneal == 'power':
-            return PowerWorldModelCoeffScheduler(start_coeff=start, end_coeff=end, horizon=horizon,
+            return PowerCoeffScheduler(start_coeff=start, end_coeff=end, horizon=horizon,
                                                  power=float(actor_cfg.get('plan_forecast_coef_power', 2.0)))
         if anneal == 'cutoff':
-            return CutoffWorldModelCoeffScheduler(start_coeff=start, end_coeff=end,
+            return CutoffCoeffScheduler(start_coeff=start, end_coeff=end,
                                                   cutoff_step=int(actor_cfg.get('plan_forecast_coef_cutoff_step', 0)))
         raise NotImplementedError(f"unknown plan_forecast_coef_anneal: {anneal}")
 
@@ -1270,87 +1149,6 @@ class RayPPOTrainer(object):
                                                     prefix=logging_prefix)
         metrics.update(global_balance_stats)
 
-    def _compute_safe_commit_w(self, batch):
-        """Safe-commit TEXT gate (default OFF). Classify each scored turn's outcome
-        predictability via the policy (predict-first), AND it with low action-entropy
-        (group-relative), and write per-turn w_t∈[0,1] to non_tensor 'safe_commit_w',
-        consumed by clipping_method='safe_commit'. Fully guarded — any failure logs
-        and skips (safe_commit then falls back to its U-derived weight)."""
-        from verl.agent_trainer.ppo.safe_commit_gate import (
-            iter_action_turns, build_messages, combine_w,
-        )
-        metrics = {}
-        try:
-            if 'rollout_messages' not in batch.non_tensor_batch:
-                return {'safecommit_gate/skipped': 1.0}
-            msgs = batch.non_tensor_batch['rollout_messages']
-            uid = batch.non_tensor_batch['uid']
-            _, ginv = np.unique(uid, return_inverse=True)
-            response_mask = batch.batch['response_mask']
-            entropys = batch.batch['entropys']                       # (B, Tr) per-token entropy
-            B = response_mask.shape[0]
-            Tr = response_mask.shape[1]
-            tb = compute_turn_boundaries(response_mask)              # per-traj action spans
-            # per-traj win flag (GRPO advantage > 0) for wins-only classification
-            adv = batch.batch['advantages']
-            rm_b = response_mask.bool()
-            win = [bool(adv[i][rm_b[i]].mean().item() > 0) if rm_b[i].any() else False
-                   for i in range(B)]
-
-            # build classification prompts only for turns we will use
-            prompts, idx_map = [], []        # idx_map: (traj_i, turn_t)
-            ent_per_traj = [[] for _ in range(B)]
-            turns_per_traj = [0] * B
-            for i in range(B):
-                spans = tb[i]
-                turns_per_traj[i] = len(spans)
-                # per-turn mean action entropy
-                for (s, e) in spans:
-                    seg = entropys[i, s:e]
-                    ent_per_traj[i].append(float(seg.mean().item()) if e > s else None)
-                if self.safe_commit_clf_wins_only and not win[i]:
-                    continue
-                turns = iter_action_turns(list(msgs[i]))
-                for t, (hist, cur_obs, action) in enumerate(turns):
-                    if t >= len(spans):
-                        break
-                    prompts.append(build_messages(self.safe_commit_clf_env, hist, cur_obs, action))
-                    idx_map.append((i, t))
-
-            pred_per_traj = [[0] * turns_per_traj[i] for i in range(B)]
-            if prompts:
-                # tokenize (left-pad) → DataProto → dispatched generation+parse
-                ids_list = [self.tokenizer.apply_chat_template(m, add_generation_prompt=True,
-                                                               tokenize=True) for m in prompts]
-                K = max(len(x) for x in ids_list)
-                pad_id = self.tokenizer.pad_token_id or self.tokenizer.eos_token_id
-                input_ids = torch.tensor([[pad_id] * (K - len(x)) + x for x in ids_list], dtype=torch.long)
-                attn = torch.tensor([[0] * (K - len(x)) + [1] * len(x) for x in ids_list], dtype=torch.long)
-                clf = DataProto.from_dict(tensors={'input_ids': input_ids, 'attention_mask': attn})
-                clf.meta_info['clf_max_new_tokens'] = self.safe_commit_clf_max_new
-                clf_p, n_pad = pad_dataproto_to_divisor(clf, self.actor_rollout_wg.world_size)
-                out = self.actor_rollout_wg.generate_classification(clf_p)
-                preds = out.batch['clf_predictable'][:len(idx_map)].tolist()
-                for (i, t), p in zip(idx_map, preds):
-                    pred_per_traj[i][t] = int(p)
-
-            w = combine_w(pred_per_traj, ent_per_traj, ginv.tolist(), gate=self.safe_commit_gate_mode)
-            w_arr = np.empty(B, dtype=object)
-            for i in range(B):
-                w_arr[i] = w[i]
-            batch.non_tensor_batch['safe_commit_w'] = w_arr
-
-            flat = [x for row in w for x in row]
-            metrics = {
-                'safecommit_gate/n_classified': float(len(idx_map)),
-                'safecommit_gate/frac_committed': float(np.mean([1.0 if x > 0 else 0.0 for x in flat])) if flat else 0.0,
-                'safecommit_gate/frac_predictable': float(np.mean([x for row in pred_per_traj for x in row])) if any(pred_per_traj) else 0.0,
-            }
-        except Exception as e:                                       # never break training
-            print(f'[safe_commit_text_gate] skipped due to: {e}')
-            metrics = {'safecommit_gate/error': 1.0}
-        return metrics
-
     def fit(self):
         """
         The training loop of PPO.
@@ -1388,11 +1186,6 @@ class RayPPOTrainer(object):
                     pass
 
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
-
-                current_wm_coeff = self.world_model_coeff_scheduler.get_coeff()
-                with open_dict(self.config):
-                    self.config.actor_rollout_ref.actor.world_model_coeff = current_wm_coeff
-                batch.meta_info['world_model_coeff'] = current_wm_coeff
 
                 # pop those keys for generation
                 gen_batch = batch.pop(batch_keys=['input_ids', 'attention_mask', 'position_ids'], non_tensor_batch_keys=['item_id', 'raw_prompt'])
@@ -1466,10 +1259,8 @@ class RayPPOTrainer(object):
 
                     # recompute old_log_probs
                     with _timer('old_log_prob', timing_raw):
-                        batch.meta_info['return_entropy'] = bool(self.wmc_erc_config and self.wmc_erc_config.get('enable', False))
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
                         batch = batch.union(old_log_prob)
-                        batch.meta_info['return_entropy'] = False
 
                     # # 在 batch dict 进入 update 之前
                     # batch.batch['old_log_probs'] = torch.nan_to_num(
@@ -1495,11 +1286,6 @@ class RayPPOTrainer(object):
                         # we combine with rule-based rm
                         reward_tensor = batch.batch['scores']
                         batch.batch['token_level_scores'] = reward_tensor
-                        if self.use_hindsight_hca:
-                            # Per-trajectory R for outcome label z and HCA
-                            # centered baseline (R − b(s_t)). Set BEFORE
-                            # GRPO advantage so it's available downstream.
-                            batch.batch['traj_return'] = reward_tensor.sum(dim=-1)
 
                         # compute rewards. apply_kl_penalty if available
                         if not self.config.actor_rollout_ref.actor.get('use_kl_loss', False):
@@ -1509,31 +1295,6 @@ class RayPPOTrainer(object):
                             metrics.update(kl_metrics)
                         else:
                             batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
-
-                        # ref_nll_add OVERRIDES every other wmc_erc path: a
-                        # direct additive shaping from the frozen ref model's
-                        # env-token NLL, applied post-advantage below.
-                        ref_nll_add = bool(self.wmc_erc_config
-                                           and self.wmc_erc_config.get('ref_nll_add', False))
-
-                        # Inject WMC-ERC curiosity bonus into rewards BEFORE
-                        # advantage normalization when wmloss_add_to_reward is
-                        # set, so GRPO's group rescaling absorbs the bonus and
-                        # the unit-variance property is preserved.
-                        if (self.wmc_erc_config
-                                and not ref_nll_add
-                                and self.wmc_erc_config.get('enable', False)
-                                and self.wmc_erc_config.get('clipping_method', 'mask') == 'add'
-                                and self.wmc_erc_config.get('wmloss_add_to_reward', False)
-                                and 'entropys' in batch.batch.keys()):
-                            batch, wmc_reward_metrics = apply_wmc_erc_to_reward(
-                                batch=batch,
-                                entropys=batch.batch['entropys'],
-                                wmc_erc_config=self.wmc_erc_config,
-                                running_stats=self.wmc_erc_running_stats,
-                                step=self.global_steps,
-                            )
-                            metrics.update(wmc_reward_metrics)
 
                         # info_grpo needs a turn-level information gain, which costs an
                         # extra forward pass, so only produce it when that estimator is
@@ -1553,83 +1314,12 @@ class RayPPOTrainer(object):
                                                   lam=self.config.algorithm.lam,
                                                   num_repeat=self.config.actor_rollout_ref.rollout.n)
 
-                        # HCAPO path (training-free): re-prompt the frozen
-                        # policy with the realized outcome, form per-action
-                        # hindsight Q-values, add the cross-state-normalized
-                        # micro advantage to the GRPO macro advantage in place.
-                        if self.use_hindsight_hca:
-                            with _timer('hca_h_log_probs', timing_raw):
-                                # Front injection: insert s_final right AFTER the original
-                                # prompt (between prompt and response) and read the action
-                                # log-probs in a SINGLE forward over the trajectory. The
-                                # per-step reconstruction path was retired — it caused FSDP
-                                # all-gather desync (variable forwards/rank) and was OOD for
-                                # our full-history agent. (hca_perstep is now a no-op.)
-                                h_lp_out = self.actor_rollout_wg.compute_hindsight_log_probs(batch)
-                                batch = batch.union(h_lp_out)
-                            hca_metrics = apply_hca_advantage(
-                                data=batch,
-                                ratio_clip_min=self.hca_ratio_clip_min,
-                                ratio_clip_max=self.hca_ratio_clip_max,
-                                temp=self.hca_temp,
-                                omega=self.hca_omega,
-                                gamma=self.hca_gamma,
-                                smooth_alpha=self.hca_smooth_alpha,
-                                success_threshold=self.hca_z_threshold,
-                            )
-                            batch.batch.pop('h_log_probs', None)
-                            metrics.update(hca_metrics)
-
-                        if ref_nll_add:
-                            # Override: coef * ref-model env NLL added to
-                            # advantage per turn. Independent of wmc_erc.enable
-                            # and clipping_method; needs no entropys.
-                            batch, ref_nll_metrics = apply_ref_nll_add_advantage(
-                                batch=batch, wmc_erc_config=self.wmc_erc_config)
-                            metrics.update(ref_nll_metrics)
-                        elif self.wmc_erc_config and self.wmc_erc_config.get('enable', False) and 'entropys' in batch.batch.keys():
-                            # Optional TEXT gate (default OFF): classify per-turn
-                            # outcome predictability and AND with low action-entropy
-                            # → safe_commit_w, consumed by clipping_method=safe_commit.
-                            if (self.safe_commit_text_gate
-                                    and self.wmc_erc_config.get('clipping_method') == 'safe_commit'):
-                                with _timer('safe_commit_gate', timing_raw):
-                                    sc_metrics = self._compute_safe_commit_w(batch)
-                                metrics.update(sc_metrics)
-                            batch, wmc_metrics = apply_wmc_erc(batch=batch,
-                                                               entropys=batch.batch['entropys'],
-                                                               wmc_erc_config=self.wmc_erc_config,
-                                                               running_stats=self.wmc_erc_running_stats,
-                                                               step=self.global_steps)
-                            metrics.update(wmc_metrics)
-                        if 'entropys' in batch.batch.keys():
-                            batch.batch.pop('entropys')
-
-                        # Progress/Exploration credit (default OFF). Classify P/E
-                        # steps per trajectory and add an all-positive advantage
-                        # bonus (omega_p on progress, omega_e on exploration; P>E;
-                        # overlap -> P; winning trajectories only). Guarded.
-                        if self.pe_credit_enable:
-                            try:
-                                from verl.agent_trainer.ppo.pe_credit import apply_pe_credit
-                                with _timer('pe_credit', timing_raw):
-                                    pe_out = self.actor_rollout_wg.compute_pe_labels(batch)
-                                    batch = batch.union(pe_out)
-                                    new_adv, pe_metrics = apply_pe_credit(
-                                        advantages=batch.batch['advantages'],
-                                        response_mask=batch.batch['response_mask'],
-                                        progress_mask=batch.batch['pe_progress_mask'],
-                                        explore_mask=batch.batch['pe_explore_mask'],
-                                        omega_p=self.pe_omega_progress,
-                                        omega_e=self.pe_omega_explore,
-                                        wins_only=self.pe_credit_wins_only)
-                                    batch.batch['advantages'] = new_adv
-                                    batch.batch.pop('pe_progress_mask', None)
-                                    batch.batch.pop('pe_explore_mask', None)
-                                metrics.update(pe_metrics)
-                            except Exception as e:
-                                print(f'[pe_credit] skipped due to: {e}')
-                                metrics['pe_credit/error'] = 1.0
+                        # Surface the degenerate-group filter. compute_advantage stashes
+                        # this in meta_info, and without lifting it into metrics there is
+                        # no way to tell a filtered run from an unfiltered one -- the flag
+                        # is an env var, so a silent no-op looks exactly like a real run.
+                        if 'grpo_filtered_frac' in batch.meta_info:
+                            metrics['grpo/filtered_frac'] = batch.meta_info['grpo_filtered_frac']
 
                         # Plan FORMAT reward (default OFF): per-turn shaping bonus
                         # on the advantage for well-formed Thought->Plan->Action
@@ -1724,36 +1414,6 @@ class RayPPOTrainer(object):
                             print(f"[sft_ablation] skipped due to error: {e}", flush=True)
                             metrics['sft_ablation/error'] = 1.0
 
-                        # Optional world-model SFT update on env-prediction data
-                        # re-assembled with chat template from the rollout.
-                        # Separate WM-SFT pass (predict env observations on a freshly
-                        # assembled batch). Gated strictly by world_model.enable
-                        # (default False => normal runs never touch this path). Used by
-                        # the WM-value experiment (C2/C3/C4); the C3 placebo lives in
-                        # _build_world_model_sft_dataproto behind world_model.placebo_shuffle.
-                        _wmcfg = self.config.actor_rollout_ref.actor.get('world_model', None)
-                        if _wmcfg is not None and bool(_wmcfg.get('enable', False)):
-                            wm_data = self._build_world_model_sft_dataproto(batch)
-                            if wm_data is not None and len(wm_data) > 0:
-                                # Decoupled coef: separate-pass strength independent of
-                                # the inline world_model_coeff, so the experiment can run
-                                # the separate WM-SFT with the inline path OFF
-                                # (WMC_COEFF=0 + world_model.sft_coef>0). Falls back to
-                                # world_model_coeff when sft_coef is unset.
-                                _wmsftcoef = float(_wmcfg.get('sft_coef', 0.0)) or \
-                                    float(self.config.actor_rollout_ref.actor.get('world_model_coeff', 0.0))
-                                # DP dispatch requires divisibility by world_size.
-                                wm_data_padded, _wm_pad = pad_dataproto_to_divisor(
-                                    wm_data, self.actor_rollout_wg.world_size)
-                                wm_data_padded.meta_info['world_model_coeff'] = _wmsftcoef
-                                with _timer('update_world_model', timing_raw):
-                                    wm_output = self.actor_rollout_wg.update_actor_world_model(wm_data_padded)
-                                wm_metrics = reduce_metrics(wm_output.meta_info['metrics'])
-                                metrics.update(wm_metrics)
-                                metrics['actor/world_model_num_samples'] = len(wm_data)
-                            else:
-                                metrics['actor/world_model_num_samples'] = 0
-
                     if self.config.trainer.save_freq > 0 and \
                             self.global_steps % self.config.trainer.save_freq == 0:
                         with _timer('save_checkpoint', timing_raw):
@@ -1768,7 +1428,6 @@ class RayPPOTrainer(object):
 
                 self.global_steps += 1
                 self.rounds_scheduler.step()
-                self.world_model_coeff_scheduler.step()
 
                 if self.global_steps >= self.total_training_steps:
 

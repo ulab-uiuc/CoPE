@@ -3,10 +3,9 @@ action commands it will take (the "plan"), supervised by the REALIZED future —
 i.e. the actual actions a_t, a_{t+1}, ..., a_{t+K-1} taken in the rollout (the
 current action is INCLUDED, so plan[0] == the action committed this turn).
 
-This is the post-hoc, teacher-forced half of the design. It is the sibling of the
-world-model SFT loss (world_model_loss.py): same chat-template re-assembly, same
-collate + CE-from-logits, but the target is the agent's own future ACTION string
-instead of the environment's next observation. It is a SEPARATE forward pass
+This is the post-hoc, teacher-forced half of the design: chat-template re-assembly
+into standalone SFT samples, collated and scored with CE, targeting the agent's own
+future ACTION string. It is a SEPARATE forward pass
 (``update_plan_forecast``) and does NOT touch PG. The OTHER half — the inline
 ``<plan>`` that conditions the action and eats PG — lives in the rollout / env
 adapter; the two share the backbone but operate on different token spans.
@@ -19,7 +18,8 @@ Gating: ``gate='wins'`` (default) keeps only trajectories with reward above
 futures on losing rollouts — kept for ablation).
 
 PURE logic for sample assembly (stdlib + tokenizer only, CPU-testable). The CE
-loss + collate are reused from world_model_loss to avoid divergence.
+loss + collate are reused from sft_common, shared with the other auxiliary SFT
+objectives.
 """
 from __future__ import annotations
 
@@ -165,8 +165,8 @@ def _to_chat_list(messages) -> List[Dict[str, str]]:
 def extract_action(assistant_text: str) -> str:
     """The bare action command from an assistant turn (drops the Thought).
 
-    Mirrors progress_credit_probe.parse_action: take the first non-empty line
-    after ``Action:``; fall back to the last non-empty line for bare-action envs.
+    Take the first non-empty line after ``Action:``; fall back to the last
+    non-empty line for bare-action envs.
     Returns '' for empty/degenerate turns (e.g. the trailing terminal turn).
     """
     m = re.search(r"Action:\s*(.+)", assistant_text or "", re.S)
@@ -182,7 +182,7 @@ def extract_action(assistant_text: str) -> str:
 def _action_turn_indices(convo: List[Dict[str, str]]) -> List[int]:
     """Indices of assistant ACTION turns, in chronological order.
 
-    Layout (codebase convention, shared with hca_perstep / progress_credit):
+    Layout (codebase convention):
     [instr(user), ack(assistant), obs0(user), action0(assistant), obs1, action1, ...].
     The instruction+ack pair is skipped; action turns sit at conv idx 3, 5, 7, ...
     (assistant, each preceded by a user obs).
@@ -548,7 +548,7 @@ def build_plan_forecast_batch(
     target ∈ {action, subgoal}; seq ∈ {separate, inline_consistent} — see
     build_plan_forecast_samples. Horizon is a fixed ``k`` unless ``k_min``/``k_max``
     are given (per-sample draw over the active stage; pass ``rng`` for reproducible
-    draws). Reuses collate_world_model_samples for padding.
+    draws). Reuses collate_sft_samples for padding.
 
     Two ORTHOGONAL group knobs (both need ``group_ids`` = the GRPO ``uid`` aligned to
     messages_list; both distill successful trajectories only). They compose: gating
@@ -567,7 +567,7 @@ def build_plan_forecast_batch(
       evenly per trajectory (1/m_g). Emits per-sample ``loss_weight`` (mean 1; the actor
       applies it scaled by plan_forecast_coef).
     """
-    from verl.agent_trainer.ppo.world_model_loss import collate_world_model_samples
+    from verl.agent_trainer.ppo.sft_common import collate_sft_samples
 
     # Per-group success rate (for group_gate).
     group_gate = (group_gate or "off").lower()
@@ -669,7 +669,7 @@ def build_plan_forecast_batch(
         for s, w in zip(all_samples, wts):
             s['loss_weight'] = w
 
-    batch = collate_world_model_samples(
+    batch = collate_sft_samples(
         samples=all_samples,
         pad_token_id=tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 0,
         max_length=max_length,

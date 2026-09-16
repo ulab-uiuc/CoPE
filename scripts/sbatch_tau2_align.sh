@@ -7,8 +7,8 @@
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=0
 #SBATCH --time=12:00:00
-#SBATCH --output=${PROJECT_ROOT}/slurm_logs/tau2_align_%j.out
-#SBATCH --error=${PROJECT_ROOT}/slurm_logs/tau2_align_%j.err
+#SBATCH --output=slurm_logs/tau2_align_%j.out
+#SBATCH --error=slurm_logs/tau2_align_%j.err
 #
 # Reproduce InfoPO's tau2-bench protocol exactly, by driving tau2's own CLI rather than
 # this repo's env-server + ReAct client.
@@ -29,10 +29,11 @@
 #   telecom 14.4   retail 13.1   airline 7.5
 
 set -euo pipefail
-ROOT=${PROJECT_ROOT}
+# sbatch copies this script to a spool dir, so BASH_SOURCE is useless here.
+ROOT="${ROOT:-${SLURM_SUBMIT_DIR:-$PWD}}"
 cd "${ROOT}"
 
-MODEL_PATH="${MODEL_PATH:-${MODEL_DIR}/Qwen2.5-7B-Instruct}"
+MODEL_PATH="${MODEL_PATH:?set MODEL_PATH to the checkpoint to evaluate}"
 TAG="${TAG:-base}"
 DOMAINS="${DOMAINS:-airline retail telecom}"
 
@@ -49,7 +50,7 @@ USER_MODEL="${USER_MODEL:-gpt-4o-mini-2024-07-18}"
 # episode fit in the step budget?) that do not depend on which model plays the customer,
 # and which would otherwise be un-runnable without API credit.
 USERSIM_BACKEND="${USERSIM_BACKEND:-hosted}"
-USERSIM_LOCAL_MODEL="${USERSIM_LOCAL_MODEL:-${MODEL_DIR}/Qwen2.5-7B-Instruct}"
+USERSIM_LOCAL_MODEL="${USERSIM_LOCAL_MODEL:-${MODEL_PATH}}"
 # The customer sees the whole transcript plus telecom's 6212-token policy, so it needs a
 # bigger window than the agent: at 32768 a long telecom episode dies with
 # ContextWindowExceededError and takes the whole run with it.

@@ -11,7 +11,6 @@ from agentenv.envs import (
     SciworldEnvClient,
     SheetEnvClient,
     SqlGymEnvClient,
-    Tau2EnvClient,
     TextCraftEnvClient,
     TodoEnvClient,
     WeatherEnvClient,
@@ -20,6 +19,14 @@ from agentenv.envs import (
     WordleEnvClient,
     SearchQAEnvClient,
 )
+
+# tau2 is the one environment this repo carries itself (src/envs/tau2) rather than
+# taking from the AgentGym submodule, so import it from there. Fall back to AgentGym
+# for anyone running against a checkout that has it upstream.
+try:
+    from envs.tau2.tau2_client import Tau2EnvClient
+except ImportError:  # pragma: no cover
+    from agentenv.envs import Tau2EnvClient
 
 import torch.distributed as dist
 

@@ -24,7 +24,6 @@ from megatron.core.pipeline_parallel import get_forward_backward_func
 
 from verl import DataProto
 from verl.agent_trainer.ppo import core_algos
-from verl.agent_trainer.ppo.world_model_loss import compute_world_model_loss
 from verl.utils.megatron.pipeline_parallel import compute_transformers_input_shapes, make_batch_generator
 from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_parallel_log_probs_from_logits
 from verl.utils.py_functional import append_to_dict
@@ -180,7 +179,6 @@ class MegatronPPOActor(BasePPOActor):
         for mini_batch in dataloader:
             batch = mini_batch.batch
             temperature = mini_batch.meta_info.get("temperature", 1.0)
-            world_model_coeff = mini_batch.meta_info.get("world_model_coeff", self.config.get("world_model_coeff", 0.0))
             self.actor_optimizer.zero_grad()
 
             response_length = batch["responses"].shape[1]
@@ -219,17 +217,6 @@ class MegatronPPOActor(BasePPOActor):
                     policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
                     metric_dict["actor/kl_loss"] = kl_loss.detach().item()
                     metric_dict["actor/kl_coef"] = self.config.kl_loss_coef
-
-                if world_model_coeff > 0:
-                    explicit_observation_mask = micro_batch["observation_mask"] if "observation_mask" in micro_batch.keys() else None
-                    wm_sft_loss, _ = compute_world_model_loss(log_prob=log_prob,
-                                                              attention_mask=micro_batch["attention_mask"],
-                                                              response_mask=response_mask,
-                                                              observation_mask=explicit_observation_mask)
-                    if wm_sft_loss is not None:
-                        policy_loss = policy_loss + world_model_coeff * wm_sft_loss
-                        metric_dict["actor/wm_sft_loss"] = wm_sft_loss.detach().item()
-                        metric_dict["actor/world_model_coeff"] = world_model_coeff
 
                 return policy_loss / grad_accum_steps, metric_dict
 

@@ -35,18 +35,6 @@ actor_rollout_ref:
     ppo_epochs: 1
     shuffle: False
     ulysses_sequence_parallel_size: 1 # sp size
-    # World-model auxiliary SFT (env-observation prediction).
-    # Set world_model_coeff > 0 to enable. Training data is re-assembled from
-    # the rollout messages via the tokenizer's chat template (see
-    # verl.agent_trainer.ppo.world_model_loss) so the model is explicitly
-    # cued to predict the environment's next observation.
-    world_model_coeff: 0.0
-    world_model:
-      enable: False
-      env_predict_prompt: null  # null uses the default prompt defined in world_model_loss.py
-      max_length: 4096
-      max_samples_per_trajectory: null  # null -> keep every env turn
-      min_env_tokens: 1                  # skip degenerate turns with no env tokens
     optim:
       lr: 1e-6
       lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
@@ -91,10 +79,6 @@ actor_rollout_ref:
     ignore_eos: False
     enforce_eager: True
     free_cache_engine: True
-    # WM-SFT observation-target filtering (webshop only). When True, product
-    # fields on search-result pages are excluded from the world-model SFT target
-    # (policy input tokens are unchanged). Default False = current behaviour.
-    wm_obs_filter: False
     load_format: dummy_dtensor
     tensor_model_parallel_size: 2
     max_num_batched_tokens: 8192
@@ -191,24 +175,6 @@ algorithm:
   kl_ctrl:
     type: fixed
     kl_coef: 0.001
-  world_model_coeff_ctrl:
-    type: fixed # select from fixed/linear/power/cutoff
-    coeff: ${actor_rollout_ref.actor.world_model_coeff} # for fixed
-    start_coeff: 0.0 # for linear/power/cutoff
-    end_coeff: 1.0 # for linear/power/cutoff
-    horizon: 1000 # for linear/power
-    power: 2.0 # for power
-    cutoff_step: 500 # for cutoff
-
-wmc_erc:
-  enable: False
-  mu_base: 1.0
-  mu_exp: 2.0
-  eta_wm: 1.0
-  lambda_wm: 1.0
-  clipping_type: batch
-  clipping_method: mask
-  momentum: 0.9
 
 trainer:
   total_epochs: 30
