@@ -40,9 +40,12 @@ except ImportError:
     sys.exit(1)
 
 # Defaults
-DEFAULT_TEST_FILE = (
-    REPO_ROOT / "data" / "test" / "sciworld_test.json"
-)
+# Item-id files for environments other than tau2 are generated per checkout (see
+# README), so allow pointing at one elsewhere: --test-file or SCIWORLD_TEST_FILE.
+DEFAULT_TEST_FILE = Path(os.environ.get(
+    "SCIWORLD_TEST_FILE",
+    str(REPO_ROOT / "data" / "test" / "sciworld_test.json"),
+))
 DEFAULT_MAX_ROUNDS = 30
 DEFAULT_MAX_TOKENS = 200
 DEFAULT_TEMPERATURE = 1.0
@@ -112,6 +115,19 @@ class LocalModel:
         return outputs[0].outputs[0].text
 
 # ---------------------------------------------------------------------------
+def _is_success(score: float, done: bool) -> int:
+    """Same criterion as the training reward (vllm_rollout._shape_task_reward)."""
+    return 1 if done and score >= 100.0 else 0
+
+
+def _record_success(rec: dict[str, Any]) -> int:
+    # Recomputed from the score rather than read from ``success``: records written
+    # before this fix stored ``score >= 1`` there. They also lack ``done``, which
+    # ``terminated_by == "env_done"`` recovers.
+    done = rec.get("done", rec.get("terminated_by") == "env_done")
+    return _is_success(float(rec["reward"]), bool(done))
+
+
 def run_trajectory(
     env_client: SciworldEnvClient,
     model: LocalModel,
@@ -160,8 +176,12 @@ def run_trajectory(
 
     return {
         "item_id": f"sciworld_{item_idx}",
+        # ``reward`` is SciWorld's raw score (the client returns ``score``): 0-100, and
+        # -100 when the episode is lost. Success matches the training reward: the
+        # episode ended with the full score.
         "reward": float(reward),
-        "success": 1 if float(reward) >= 1.0 else 0, # SciWorld score is 0-1.0 or 0-100? Assuming 0-1.0 from StepOutput
+        "done": bool(done),
+        "success": _is_success(float(reward), bool(done)),
         "rounds": rounds,
         "terminated_by": terminated_by,
         "conversations": conversation,
@@ -191,8 +211,10 @@ class EnvPool:
 # ---------------------------------------------------------------------------
 def load_test_ids(test_file: Path) -> list[int]:
     if not test_file.exists():
-        print(f"Warning: {test_file} not found.")
-        return []
+        # Fail loudly: returning [] here made the run "succeed" with zero tasks evaluated.
+        print(f"ERROR: test id file {test_file} not found. Pass --test-file or set "
+              f"SCIWORLD_TEST_FILE (item-id files are generated per checkout, see README).")
+        sys.exit(1)
     with test_file.open("r", encoding="utf-8") as f:
         rows = json.load(f)
     
@@ -207,13 +229,16 @@ def load_test_ids(test_file: Path) -> list[int]:
 def aggregate(results: dict[int, dict[str, Any]]) -> dict[str, dict[str, float]]:
     all_recs = list(results.values())
     if all_recs:
-        all_succ = sum(r["success"] for r in all_recs) / len(all_recs)
+        all_succ = sum(_record_success(r) for r in all_recs) / len(all_recs)
+        # raw mean (lost episodes count -100) and the mean with losses floored at 0
         all_score = sum(r["reward"] for r in all_recs) / len(all_recs)
+        all_score_clip0 = sum(max(0.0, r["reward"]) for r in all_recs) / len(all_recs)
     else:
-        all_succ = all_score = float("nan")
-    
+        all_succ = all_score = all_score_clip0 = float("nan")
+
     summary = {
-        "All": {"success": all_succ, "score": all_score, "count": len(all_recs)}
+        "All": {"success": all_succ, "score": all_score, "score_clip0": all_score_clip0,
+                "count": len(all_recs)}
     }
     return summary
 
@@ -223,7 +248,10 @@ def format_report(summary: dict[str, dict[str, float]]) -> str:
     sep = "|" + "|".join(["---"] * len(cols)) + "|"
     succ_row = "| " + " | ".join(f"{summary[c]['success']*100:.2f}" if summary[c]['count'] else "-" for c in cols) + " |"
     score_row = "| " + " | ".join(f"{summary[c]['score']:.4f}" if summary[c]['count'] else "-" for c in cols) + " |"
-    return f"SciWorld Evaluation Results:\n{header}\n{sep}\nSuccess Rate (%): {succ_row}\nAverage Score: {score_row}"
+    clip_row = "| " + " | ".join(f"{summary[c]['score_clip0']:.4f}" if summary[c]['count'] else "-" for c in cols) + " |"
+    return (f"SciWorld Evaluation Results (success = done and score >= 100):\n{header}\n{sep}\n"
+            f"Success Rate (%): {succ_row}\nAverage Score (raw, -100 on loss): {score_row}\n"
+            f"Average Score (losses floored at 0): {clip_row}")
 
 # ---------------------------------------------------------------------------
 def main():
@@ -240,12 +268,15 @@ def main():
     parser.add_argument("--top-p", type=float, default=DEFAULT_TOP_P)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--test-file", type=Path, default=DEFAULT_TEST_FILE,
+                        help=f"JSON list of test item ids (default: {DEFAULT_TEST_FILE})")
     args = parser.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     env_addrs = [s.strip() for s in args.env_addrs.split(",") if s.strip()]
     
-    test_ids = load_test_ids(DEFAULT_TEST_FILE)
+    test_ids = load_test_ids(args.test_file)
+    print(f"[data] test ids: {len(test_ids)} from {args.test_file}")
     if args.limit > 0:
         test_ids = test_ids[:args.limit]
 

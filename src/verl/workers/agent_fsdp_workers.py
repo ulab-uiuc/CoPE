@@ -441,10 +441,10 @@ class ActorRolloutRefWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    def update_actor_plan_forecast(self, data: DataProto):
-        """One plan-forecast SFT update (predict realized next-K actions).
+    def update_actor_action_forecast(self, data: DataProto):
+        """One action-forecast SFT update (predict realized next-K actions).
 
-        Incoming ``data`` is the output of ``plan_forecast.build_plan_forecast_batch``
+        Incoming ``data`` is the output of ``action_forecast.build_action_forecast_batch``
         (expects ``input_ids``/``attention_mask``/``position_ids``/``loss_mask``).
         DP dispatch + caller-side ``pad_dataproto_to_divisor`` keep every rank's
         sample count equal, so no FSDP collective desync.
@@ -460,18 +460,18 @@ class ActorRolloutRefWorker(Worker):
             load_fsdp_optimizer(optimizer=self.actor_optimizer, device_id=torch.cuda.current_device())
 
         data.batch = data.batch.cuda()
-        log_gpu_memory_usage('Before update plan-forecast', logger=logger)
+        log_gpu_memory_usage('Before update action-forecast', logger=logger)
 
         with self.ulysses_sharding_manager:
             data = self.ulysses_sharding_manager.preprocess_data(data=data)
-            with Timer(name='update_plan_forecast', logger=None) as timer:
-                metrics = self.actor.update_plan_forecast(data=data)
-            metrics['plan_forecast/step_time'] = timer.last
+            with Timer(name='update_action_forecast', logger=None) as timer:
+                metrics = self.actor.update_action_forecast(data=data)
+            metrics['action_forecast/step_time'] = timer.last
 
             self.actor_lr_scheduler.step()
-            metrics['plan_forecast/lr'] = self.actor_lr_scheduler.get_last_lr()[0]
+            metrics['action_forecast/lr'] = self.actor_lr_scheduler.get_last_lr()[0]
 
-            log_gpu_memory_usage('After update plan-forecast', logger=logger)
+            log_gpu_memory_usage('After update action-forecast', logger=logger)
             output = DataProto(meta_info={'metrics': metrics})
             output = self.ulysses_sharding_manager.postprocess_data(data=output)
             output = output.to('cpu')
@@ -480,6 +480,41 @@ class ActorRolloutRefWorker(Worker):
             offload_fsdp_param_and_grad(module=self.actor_module_fsdp, offload_grad=self._is_offload_grad)
         if self._is_offload_optimizer:
             offload_fsdp_optimizer(optimizer=self.actor_optimizer)
+        torch.cuda.empty_cache()
+        return output
+
+    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    def compute_te_log_prob(self, data: DataProto):
+        """Temporal Ensembling: score forecast slots under the frozen policy.
+
+        Inference only; no optimizer or lr_scheduler step. Called by the trainer only
+        when te_enable is set. All results are returned as batch tensors because
+        DP_COMPUTE_PROTO concatenates batch tensors across workers but not meta_info.
+        """
+        data = data.to('cuda')
+        assert self._is_actor
+        if self._is_offload_param:
+            load_fsdp_param_and_grad(module=self.actor_module_fsdp,
+                                     device_id=torch.cuda.current_device(),
+                                     load_grad=self._is_offload_grad)
+        data.batch = data.batch.cuda()
+        with self.ulysses_sharding_manager:
+            data = self.ulysses_sharding_manager.preprocess_data(data=data)
+            with Timer(name='compute_te_log_prob', logger=None) as timer:
+                slot_lp, slot_lp_tok, topm_ids, topm_prs = self.actor.compute_te_log_prob(data=data)
+            from tensordict import TensorDict
+            output = DataProto(
+                batch=TensorDict({'slot_logp': slot_lp.cpu(),
+                                  'slot_logp_tok': slot_lp_tok.cpu(),
+                                  'slot_topm_ids': topm_ids.cpu(),
+                                  'slot_topm_prs': topm_prs.cpu()},
+                                 batch_size=slot_lp.shape[0]),
+                meta_info={'te/score_time': timer.last})
+            output = self.ulysses_sharding_manager.postprocess_data(data=output)
+            output = output.to('cpu')
+        if self._is_offload_param:
+            offload_fsdp_param_and_grad(module=self.actor_module_fsdp,
+                                        offload_grad=self._is_offload_grad)
         torch.cuda.empty_cache()
         return output
 

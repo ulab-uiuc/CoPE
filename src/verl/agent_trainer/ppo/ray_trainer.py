@@ -34,12 +34,7 @@ from verl.single_controller.base import Worker
 from verl.single_controller.ray import RayResourcePool, RayWorkerGroup, RayClassWithInitArgs
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.agent_trainer.ppo import core_algos
-from verl.agent_trainer.ppo.turn_spans import compute_turn_boundaries
-from verl.agent_trainer.ppo.plan_forecast import (
-    build_plan_forecast_batch,
-    parse_k_schedule,
-    active_k_range,
-)
+from verl.agent_trainer.ppo.action_forecast import build_action_forecast_batch
 # verl.agent_trainer.ppo.sft_ablation is not present in this checkout (never
 # committed), and importing it at module scope makes *every* run fail on import. The
 # feature is off by default, so bind the symbol lazily and only fail if it is enabled.
@@ -318,123 +313,6 @@ class StepRoundsScheduler(RoundsScheduler):
         return self.max_rounds
 
 
-class CoeffScheduler(ABC):
-    """Anneal an auxiliary-loss coefficient over training steps.
-
-    Drive it either by calling ``step()`` once per step or by pushing the trainer's
-    own counter with ``set_global_steps`` — the latter also makes resume correct for
-    free, since the counter is restored from the checkpoint.
-    """
-
-    @abstractmethod
-    def step(self):
-        raise NotImplementedError
-
-    @abstractmethod
-    def set_global_steps(self, global_steps: int):
-        raise NotImplementedError
-
-    @abstractmethod
-    def get_coeff(self):
-        raise NotImplementedError
-
-
-class FixedCoeffScheduler(CoeffScheduler):
-    def __init__(self, coeff: float):
-        self.coeff = coeff
-
-    def step(self):
-        pass
-
-    def set_global_steps(self, global_steps: int):
-        pass
-
-    def get_coeff(self):
-        return self.coeff
-
-
-class LinearCoeffScheduler(CoeffScheduler):
-    def __init__(self, start_coeff: float, end_coeff: float, horizon: int):
-        self.start_coeff = start_coeff
-        self.end_coeff = end_coeff
-        self.horizon = horizon
-        self.current_coeff = start_coeff
-        self.global_steps = 0
-
-    def step(self):
-        self.global_steps += 1
-        self._update()
-
-    def set_global_steps(self, global_steps: int):
-        self.global_steps = global_steps
-        self._update()
-
-    def _update(self):
-        if self.horizon <= 0:
-            self.current_coeff = self.end_coeff
-        else:
-            fraction = min(self.global_steps / self.horizon, 1.0)
-            self.current_coeff = self.start_coeff + fraction * (self.end_coeff - self.start_coeff)
-
-    def get_coeff(self):
-        return self.current_coeff
-
-
-class PowerCoeffScheduler(CoeffScheduler):
-    def __init__(self, start_coeff: float, end_coeff: float, horizon: int, power: float = 2.0):
-        self.start_coeff = start_coeff
-        self.end_coeff = end_coeff
-        self.horizon = horizon
-        self.power = power
-        self.current_coeff = start_coeff
-        self.global_steps = 0
-
-    def step(self):
-        self.global_steps += 1
-        self._update()
-
-    def set_global_steps(self, global_steps: int):
-        self.global_steps = global_steps
-        self._update()
-
-    def _update(self):
-        if self.horizon <= 0:
-            self.current_coeff = self.end_coeff
-        else:
-            fraction = min(self.global_steps / self.horizon, 1.0)
-            # Use power function for non-linear growth: (step/horizon)^power
-            self.current_coeff = self.start_coeff + (fraction ** self.power) * (self.end_coeff - self.start_coeff)
-
-    def get_coeff(self):
-        return self.current_coeff
-
-
-class CutoffCoeffScheduler(CoeffScheduler):
-    def __init__(self, start_coeff: float, end_coeff: float, cutoff_step: int):
-        self.start_coeff = start_coeff
-        self.end_coeff = end_coeff
-        self.cutoff_step = cutoff_step
-        self.current_coeff = start_coeff
-        self.global_steps = 0
-
-    def step(self):
-        self.global_steps += 1
-        self._update()
-
-    def set_global_steps(self, global_steps: int):
-        self.global_steps = global_steps
-        self._update()
-
-    def _update(self):
-        if self.global_steps >= self.cutoff_step:
-            self.current_coeff = self.end_coeff
-        else:
-            self.current_coeff = self.start_coeff
-
-    def get_coeff(self):
-        return self.current_coeff
-
-
 def reduce_metrics(metrics: dict):
     for key, val in metrics.items():
         metrics[key] = np.mean(val)
@@ -619,24 +497,6 @@ class RayPPOTrainer(object):
         else:
             raise NotImplementedError
 
-        # Plan FORMAT reward (default OFF): per-turn shaping bonus on the advantage
-        # for emitting a well-formed Thought->Plan->Action turn, to counter the
-        # decay of inline-plan behaviour under RL.
-        _pa = self.config.actor_rollout_ref.actor
-        self.plan_format_reward_enable = bool(_pa.get('plan_format_reward_enable', False))
-        self.plan_format_reward_coef = float(_pa.get('plan_format_reward_coef', 0.05))
-        self.plan_format_reward_baseline = float(_pa.get('plan_format_reward_baseline', 0.5))
-        self.plan_format_reward_clip = float(_pa.get('plan_format_reward_clip', 0.0))
-        # penalty_only (default True): only penalize turns that DROP the plan,
-        # never reward keeping it -> dormant while compliant, no length/positive bias.
-        self.plan_format_reward_penalty_only = bool(_pa.get('plan_format_reward_penalty_only', True))
-        # warmup: keep the format reward OFF until global_step >= warmup_steps, so
-        # the policy can learn the task (and compress) first before plan pressure.
-        self.plan_format_reward_warmup_steps = int(_pa.get('plan_format_reward_warmup_steps', 10))
-        self.plan_format_reward_k = int(_pa.get('plan_format_reward_k',
-                                                int(self.config.data.get('plan_inline_k', 3))
-                                                if hasattr(self.config, 'data') else 3))
-
         self._validate_config()
         self._create_dataloader()
 
@@ -757,21 +617,12 @@ class RayPPOTrainer(object):
             raise NotImplementedError
         print(f'Total training steps: {self.total_training_steps}')
 
-        # Plan-forecast coefficient scheduler (anneal plan_forecast_coef). Knobs live
-        # on the actor config next to the other plan_forecast_* settings.
-        self.plan_forecast_coeff_scheduler = self._build_plan_forecast_scheduler()
-
-        # plan_forecast and the sft-ablation (RFT) control are MUTUALLY EXCLUSIVE:
+        # action_forecast and the sft-ablation (RFT) control are MUTUALLY EXCLUSIVE:
         # they share one optimizer path and are meant to be A/B'd, never combined.
         _acfg = self.config.actor_rollout_ref.actor
-        if bool(_acfg.get('plan_forecast_enable', False)) and bool(_acfg.get('sft_ablation_enable', False)):
-            raise ValueError("plan_forecast_enable and sft_ablation_enable are mutually "
+        if bool(_acfg.get('action_forecast_enable', False)) and bool(_acfg.get('sft_ablation_enable', False)):
+            raise ValueError("action_forecast_enable and sft_ablation_enable are mutually "
                              "exclusive — enable exactly one.")
-
-        # plan_forecast horizon-growth schedule (empty = off -> fixed plan_forecast_k).
-        # Parsed once here so a malformed spec fails fast at init instead of being
-        # swallowed by the forecast dispatch's try/except at every step.
-        self._pf_k_stages = parse_k_schedule(str(_acfg.get('plan_forecast_k_schedule', '') or ''))
 
         OmegaConf.set_struct(self.config, True)
         with open_dict(self.config):
@@ -941,43 +792,155 @@ class RayPPOTrainer(object):
         if isinstance(self.train_dataloader.dataset, RLHFDataset):
             self.train_dataloader.dataset.resume_dataset_state()
 
-    def _build_plan_forecast_scheduler(self):
-        """Coeff scheduler for plan_forecast_coef. anneal in {fixed,linear,power,
-        cutoff}; reuses the generic *CoeffScheduler classes. start =
-        plan_forecast_coef."""
-        actor_cfg = self.config.actor_rollout_ref.actor
-        anneal = str(actor_cfg.get('plan_forecast_coef_anneal', 'fixed')).lower()
-        start = float(actor_cfg.get('plan_forecast_coef', 0.0))
-        end = float(actor_cfg.get('plan_forecast_coef_end', 0.0))
-        horizon = int(actor_cfg.get('plan_forecast_coef_horizon', 0))
-        if anneal in ('fixed', 'none', ''):
-            return FixedCoeffScheduler(coeff=start)
-        if anneal == 'linear':
-            return LinearCoeffScheduler(start_coeff=start, end_coeff=end, horizon=horizon)
-        if anneal == 'power':
-            return PowerCoeffScheduler(start_coeff=start, end_coeff=end, horizon=horizon,
-                                                 power=float(actor_cfg.get('plan_forecast_coef_power', 2.0)))
-        if anneal == 'cutoff':
-            return CutoffCoeffScheduler(start_coeff=start, end_coeff=end,
-                                                  cutoff_step=int(actor_cfg.get('plan_forecast_coef_cutoff_step', 0)))
-        raise NotImplementedError(f"unknown plan_forecast_coef_anneal: {anneal}")
+    def _compute_temporal_ensemble(self, batch):
+        """Temporal Ensembling: add the TE target tensors to ``batch`` in place.
 
-    def _build_plan_forecast_dataproto(self, batch: DataProto, coef: float):
-        """Build a plan-forecast SFT DataProto (predict realized next-K actions).
+        Runs under the frozen policy (after rollout, before any optimizer step):
+          1. every action turn of every trajectory -> one forecast scoring sample
+          2. frozen forward pass scores each forecast slot
+          3. members are selected by true turn index (t > s) and assembled into q
+
+        Also runs at te_lambda=0 (dry-run): the diagnostics (te/gain_tok_win etc.) are
+        reported but nothing enters the gradient.
+        Returns a metrics dict.
+        """
+        from verl.agent_trainer.ppo.temporal_ensemble import (
+            build_te_batch, assemble_te_tensors, assemble_te_tensors_token, assemble_te_topm)
+        import random as _random
+        acfg = self.config.actor_rollout_ref.actor
+        msgs = batch.non_tensor_batch.get('rollout_messages', None)
+        if msgs is None or 'turn_ids' not in batch.batch.keys():
+            return {'te/skipped': 1.0}
+
+        k = int(acfg.get('action_forecast_k', 3))
+        te_batch, index, meta = build_te_batch(
+            msgs, self.tokenizer, k=k,
+            skip_invalid=bool(acfg.get('action_forecast_skip_invalid', True)),
+            env=str(self.config.actor_rollout_ref.agentgym.get('task_name', 'alfworld')),
+            max_length=int(acfg.get('action_forecast_max_length', 4096)),
+            pad_token_id=self.tokenizer.pad_token_id or 0,
+            traj_subsample=float(acfg.get('te_traj_subsample', 1.0)),
+            rng=_random.Random(self.global_steps),
+        )
+        if te_batch is None:
+            return meta
+
+        te_padded, pad_n = pad_dataproto_to_divisor(te_batch, self.actor_rollout_wg.world_size)
+        out = self.actor_rollout_wg.compute_te_log_prob(te_padded)
+        # te_mix: 'fullvocab' is the working form; 'token' / 'seq' are kept only to
+        # reproduce the runs where they degenerated.
+        te_mix = str(acfg.get('te_mix', 'token')).lower()
+        _t = out.batch['slot_logp']   # [B, K], already concatenated across workers
+        if pad_n:
+            _t = _t[:_t.shape[0] - pad_n]
+        slot_lp = [[float(x) for x in row] for row in _t.tolist()]
+        slot_tok_lp = None
+        if te_mix in ('token', 'fullvocab'):
+            _tt = out.batch['slot_logp_tok']   # [B, K, TMAX]
+            if pad_n:
+                _tt = _tt[:_tt.shape[0] - pad_n]
+            slot_tok_lp = []
+            for sample in _tt.tolist():
+                row = []
+                for slot in sample:
+                    toks = []
+                    for v in slot:   # trailing NaNs are padding
+                        if v != v:
+                            break
+                        toks.append(float(v))
+                    row.append(toks)
+                slot_tok_lp.append(row)
+        meta['te/score_time'] = float(out.meta_info.get('te/score_time', 0.0))
+
+        # Per-trajectory return for the win/fail diagnostics. token_level_scores and
+        # traj_return are only written later in the step, so fall back to the rollout's
+        # 'scores' (already in the batch; the score sits at the last valid position).
+        tret = batch.batch.get('traj_return', None)
+        if tret is None and 'token_level_scores' in batch.batch.keys():
+            tret = batch.batch['token_level_scores'].sum(-1)
+        if tret is None and 'scores' in batch.batch.keys():
+            tret = batch.batch['scores'].sum(-1)
+        _eta = float(acfg.get('te_eta', 0.5))
+
+        lam = float(acfg.get('te_lambda', 0.0))
+        if self.global_steps < int(acfg.get('te_warmup_steps', 0)):
+            lam = 0.0   # warmup: observe only
+
+        if te_mix == 'fullvocab':
+            # Only the top-M tensors are needed; te_log_q / te_valid stay out of the batch.
+            _ti = out.batch['slot_topm_ids']
+            _tp = out.batch['slot_topm_prs']
+            if pad_n:
+                _ti = _ti[:_ti.shape[0] - pad_n]
+                _tp = _tp[:_tp.shape[0] - pad_n]
+            cov_pos, cov_ids, cov_prs, m2 = assemble_te_topm(
+                index, _ti, _tp, turn_ids=batch.batch['turn_ids'])
+            batch.batch['te_cov_pos'] = cov_pos
+            batch.batch['te_cov_ids'] = cov_ids
+            batch.batch['te_cov_prs'] = cov_prs
+            # Per-token diagnostics too (not written to the batch, no gradient).
+            try:
+                _, _, m_tok = assemble_te_tensors_token(
+                    index, slot_tok_lp if slot_tok_lp is not None else [],
+                    old_log_probs=batch.batch['old_log_probs'],
+                    turn_ids=batch.batch['turn_ids'], eta=_eta, traj_return=tret)
+                for _k, _v in m_tok.items():
+                    m2.setdefault(_k, _v)
+            except Exception:
+                pass
+            m2['te/mix_is_token'] = 2.0
+            meta.update(m2)
+            batch.meta_info['te_lambda'] = lam
+            batch.meta_info['te_gbar'] = 0.0
+            meta['te/lambda_effective'] = lam
+            return meta
+
+        if te_mix == 'token':
+            te_log_q, te_valid, m2 = assemble_te_tensors_token(
+                index, slot_tok_lp, old_log_probs=batch.batch['old_log_probs'],
+                turn_ids=batch.batch['turn_ids'], eta=_eta, traj_return=tret)
+            # Sequence-level pass only for comparable gain_all / span_len diagnostics.
+            try:
+                _, _, m_seq = assemble_te_tensors(
+                    index, slot_lp, old_log_probs=batch.batch['old_log_probs'],
+                    turn_ids=batch.batch['turn_ids'], eta=_eta, traj_return=tret)
+                for _k in ('te/gain_all', 'te/span_len_mean'):
+                    if _k in m_seq:
+                        m2.setdefault(_k, m_seq[_k])
+            except Exception:
+                pass
+        else:
+            te_log_q, te_valid, m2 = assemble_te_tensors(
+                index, slot_lp, old_log_probs=batch.batch['old_log_probs'],
+                turn_ids=batch.batch['turn_ids'], eta=_eta, traj_return=tret)
+        m2['te/mix_is_token'] = 1.0 if te_mix == 'token' else 0.0
+        batch.batch['te_log_q'] = te_log_q
+        batch.batch['te_valid'] = te_valid
+        # The common-mode baseline is a batch-level scalar, so it travels in meta_info
+        # (batch tensors are split per sample under DP_COMPUTE_PROTO).
+        _gb = m2.get('te/g_bar', float('nan'))
+        batch.meta_info['te_gbar'] = float(_gb) if _gb == _gb else 0.0
+        meta.update(m2)
+        batch.meta_info['te_lambda'] = lam
+        meta['te/lambda_effective'] = lam
+        return meta
+
+    def _build_action_forecast_dataproto(self, batch: DataProto, coef: float):
+        """Build a action-forecast SFT DataProto (predict realized next-K actions).
 
         ``coef`` is the CURRENT (annealed) coefficient. Returns (dataproto, meta)
         or (None, meta). ``None`` when disabled, coef<=0, no ``rollout_messages``,
         or no qualifying step. Wins-gate uses per-traj reward from ``traj_return``
         (fallback: token_level_scores.sum)."""
         actor_cfg = self.config.actor_rollout_ref.actor
-        if not actor_cfg.get('plan_forecast_enable', False):
+        if not actor_cfg.get('action_forecast_enable', False):
             return None, {}
         if coef <= 0:
-            return None, {'plan_forecast/coef': 0.0}
+            return None, {'action_forecast/coef': 0.0}
 
         messages_list = batch.non_tensor_batch.get('rollout_messages', None)
         if messages_list is None:
-            return None, {'plan_forecast/skipped_no_msgs': 1.0}
+            return None, {'action_forecast/skipped_no_msgs': 1.0}
 
         rewards = None
         if 'traj_return' in batch.batch.keys():
@@ -985,69 +948,36 @@ class RayPPOTrainer(object):
         elif 'token_level_scores' in batch.batch.keys():
             rewards = batch.batch['token_level_scores'].sum(dim=-1).tolist()
 
-        # target: 'action' (block2-success, predict realized next-K actions) or
-        # 'subgoal' (predict next-K hindsight-confirmed achieved sub-goals).
-        target = str(actor_cfg.get('plan_forecast_target', 'action')).lower()
-        # seq: 'separate' (block2 — synthetic prompt + bare list, standalone) or
-        # 'inline_consistent' (SFT sample matches a real rollout turn: obs ->
-        # Plan+Action). inline_consistent only makes sense with inline plan ON; if
-        # inline is off it falls back to separate to avoid teaching an unused format.
-        seq = str(actor_cfg.get('plan_forecast_seq', 'separate')).lower()
-        inline_on = bool(hasattr(self.config, 'data')
-                         and self.config.data.get('plan_inline_enable', False))
-        if seq == 'inline_consistent' and not inline_on:
-            print("[plan_forecast] seq=inline_consistent -> separate (inline plan OFF)", flush=True)
-            seq = 'separate'
-
-        # Horizon: fixed plan_forecast_k, or a per-sample draw over the active stage
-        # of the horizon-growth schedule (curriculum). RNG seeded by global_step so
-        # the draw is reproducible and resume-consistent.
-        k_min = k_max = None
-        if self._pf_k_stages:
-            k_min, k_max = active_k_range(self._pf_k_stages, self.global_steps)
-        rng = random.Random(self.global_steps)
-
         # skip_invalid: drop actions whose env result was invalid/no-effect from the
         # forecast target (per-env patterns keyed by the task name). Default off.
-        skip_invalid = bool(actor_cfg.get('plan_forecast_skip_invalid', False))
+        skip_invalid = bool(actor_cfg.get('action_forecast_skip_invalid', False))
         try:
             env_name = str(self.config.actor_rollout_ref.agentgym.get('task_name', 'alfworld'))
         except Exception:
             env_name = 'alfworld'
 
-        # group knobs (both need uid aligned to rollout_messages, default off, compose):
-        # group_gate = filter which groups' successes to distill (curriculum);
-        # group_norm = give each kept group equal total plan-CE weight (stability).
-        group_gate = str(actor_cfg.get('plan_forecast_group_gate', 'off')).lower()
-        group_norm = bool(actor_cfg.get('plan_forecast_group_norm', False))
+        # group_norm: give each group's successes equal total forecast-CE weight
+        # (needs uid aligned to rollout_messages). Default off.
+        group_norm = bool(actor_cfg.get('action_forecast_group_norm', False))
         group_ids = None
-        if group_gate != 'off' or group_norm:
+        if group_norm:
             _uid = batch.non_tensor_batch.get('uid', None)
             if _uid is not None:
                 group_ids = list(_uid)
 
-        assembled, meta = build_plan_forecast_batch(
+        assembled, meta = build_action_forecast_batch(
             messages_list=list(messages_list),
             tokenizer=self.tokenizer,
             rewards=rewards,
-            k=int(actor_cfg.get('plan_forecast_k', 3)),
-            gate=str(actor_cfg.get('plan_forecast_gate', 'wins')),
-            success_threshold=float(actor_cfg.get('plan_forecast_success_threshold', 0.5)),
-            target=target,
-            seq=seq,
-            max_length=int(actor_cfg.get('plan_forecast_max_length', 4096)),
-            max_samples_per_trajectory=actor_cfg.get('plan_forecast_max_samples_per_traj', None),
-            k_min=k_min,
-            k_max=k_max,
-            rng=rng,
+            k=int(actor_cfg.get('action_forecast_k', 3)),
+            gate=str(actor_cfg.get('action_forecast_gate', 'wins')),
+            success_threshold=float(actor_cfg.get('action_forecast_success_threshold', 0.5)),
+            max_length=int(actor_cfg.get('action_forecast_max_length', 4096)),
+            max_samples_per_trajectory=actor_cfg.get('action_forecast_max_samples_per_traj', None),
             skip_invalid=skip_invalid,
             env=env_name,
             group_ids=group_ids,
-            group_gate=group_gate,
-            group_low=float(actor_cfg.get('plan_forecast_group_low_thresh', 0.5)),
-            group_high=float(actor_cfg.get('plan_forecast_group_high_thresh', 1.0)),
             group_norm=group_norm,
-            group_dedup=bool(actor_cfg.get('plan_forecast_group_dedup', True)),
         )
         if assembled is None:
             return None, meta
@@ -1055,8 +985,8 @@ class RayPPOTrainer(object):
 
     def _build_sft_ablation_dataproto(self, batch: DataProto, coef: float):
         """Build the RFT-style SFT-ablation DataProto (behavior-clone this step's
-        winning trajectories). Control for plan-forecast; mutually exclusive with it.
-        Same win-gating / reward source as ``_build_plan_forecast_dataproto``."""
+        winning trajectories). Control for action-forecast; mutually exclusive with it.
+        Same win-gating / reward source as ``_build_action_forecast_dataproto``."""
         actor_cfg = self.config.actor_rollout_ref.actor
         if not actor_cfg.get('sft_ablation_enable', False):
             return None, {}
@@ -1090,47 +1020,6 @@ class RayPPOTrainer(object):
         if assembled is None:
             return None, meta
         return DataProto.from_single_dict(assembled), meta
-
-    def _apply_plan_format_reward(self, batch: DataProto):
-        """Driver-side plan FORMAT reward: score each generated turn's text for
-        Thought->Plan->Action compliance and add coef*(score-baseline) to that
-        turn's advantage tokens. Pure text parsing (no worker). Fully guarded.
-
-        Returns a metrics dict; mutates batch.batch['advantages'] in place.
-        """
-        from verl.agent_trainer.ppo.plan_format import (
-            score_turn_format, apply_plan_format_advantage)
-        from verl.agent_trainer.ppo.plan_forecast import _action_turn_indices, _to_chat_list
-        if 'rollout_messages' not in batch.non_tensor_batch:
-            return {'plan_format/skipped_no_msgs': 1.0}
-        msgs = batch.non_tensor_batch['rollout_messages']
-        advantages = batch.batch['advantages']
-        response_mask = batch.batch['response_mask']
-        B, T = advantages.shape
-        k = self.plan_format_reward_k
-        tb = compute_turn_boundaries(response_mask)             # per-traj action spans
-        format_tok = torch.zeros(B, T, dtype=advantages.dtype, device=advantages.device)
-        n_turns = 0
-        for i in range(B):
-            spans = tb[i]
-            if not spans:
-                continue
-            convo = _to_chat_list(msgs[i])
-            turns = [convo[ai].get('content', '') or '' for ai in _action_turn_indices(convo)]
-            for j, (s, e) in enumerate(spans):
-                if j >= len(turns):
-                    break
-                sc = score_turn_format(turns[j], k=k)
-                format_tok[i, s:e] = sc
-                n_turns += 1
-        new_adv, metrics = apply_plan_format_advantage(
-            advantages=advantages, response_mask=response_mask, format_tok=format_tok,
-            coef=self.plan_format_reward_coef, baseline=self.plan_format_reward_baseline,
-            clip=self.plan_format_reward_clip,
-            penalty_only=self.plan_format_reward_penalty_only)
-        batch.batch['advantages'] = new_adv
-        metrics['plan_format/num_turns'] = float(n_turns)
-        return metrics
 
     def _balance_batch(self, batch: DataProto, metrics, logging_prefix='global_seqlen'):
         """Reorder the data on single controller such that each dp rank gets similar total tokens"""
@@ -1178,12 +1067,6 @@ class RayPPOTrainer(object):
             for batch_dict in self.train_dataloader:
                 metrics = {}
                 timing_raw = {}
-                # keep the dataset's step in sync for step-gated inline warmup
-                # (num_workers=0 -> same object; <=1-step lag is fine for a threshold)
-                try:
-                    self.train_dataset.current_step = self.global_steps
-                except Exception:
-                    pass
 
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
 
@@ -1191,33 +1074,6 @@ class RayPPOTrainer(object):
                 gen_batch = batch.pop(batch_keys=['input_ids', 'attention_mask', 'position_ids'], non_tensor_batch_keys=['item_id', 'raw_prompt'])
                 gen_batch.meta_info['global_steps'] = self.global_steps
                 gen_batch.meta_info['max_rounds'] = self.rounds_scheduler.get_rounds()
-                # Block-1 per-turn plan reminder: when inline plan is on, re-state
-                # the "Plan first" request after EVERY observation (a one-time
-                # instruction decays over turns). Routed via gen meta_info. Gated by
-                # plan_inline_warmup_steps: during warmup the original prompt is used
-                # (no reminder), the plan prompt is introduced only at/after warmup.
-                _data_cfg = getattr(self.config, 'data', None)
-                _inline_warmup = int(_data_cfg.get('plan_inline_warmup_steps', 0)) if _data_cfg is not None else 0
-                # per-turn reminder ARCHIVED (default OFF) -> inline uses the opening
-                # standing instruction only. Set data.plan_inline_per_turn=True to revive.
-                _inline_active = (_data_cfg is not None
-                                  and bool(_data_cfg.get('plan_inline_enable', False))
-                                  and bool(_data_cfg.get('plan_inline_per_turn', False))
-                                  and self.global_steps >= _inline_warmup)
-                _think_on = _data_cfg is not None and bool(_data_cfg.get('think_reminder_enable', False))
-                # Mutually exclusive per-turn reminders: inline-plan takes priority.
-                # plan_inline_style: 'actions' (next-K actions) | 'todo' (checkable
-                # sub-goal TODO list with (done) marks; pairs with target=subgoal).
-                if _inline_active:
-                    _style = str(_data_cfg.get('plan_inline_style', 'actions')).lower()
-                    gen_batch.meta_info['per_turn_reminder'] = 'todo' if _style == 'todo' else 'plan'
-                    gen_batch.meta_info['plan_inline_k'] = int(_data_cfg.get('plan_inline_k', 3))
-                    metrics['plan_inline/active'] = 1.0
-                elif _think_on:
-                    gen_batch.meta_info['per_turn_reminder'] = 'think'
-                    metrics['think_reminder/active'] = 1.0
-                elif _data_cfg is not None and bool(_data_cfg.get('plan_inline_enable', False)):
-                    metrics['plan_inline/active'] = 0.0   # inline in warmup -> original prompt
                 metrics.update({
                     'max_rounds': self.rounds_scheduler.get_rounds(),
                 })
@@ -1270,6 +1126,14 @@ class RayPPOTrainer(object):
                     #     neginf=-10.0,    # 这是核心防护
                     # )
 
+                    # ---- Temporal Ensembling: score forecast members, assemble q ----
+                    # Must run after old_log_prob (the pi^0 component comes from it) and
+                    # before any optimizer step (the weights are then the frozen theta-bar).
+                    # Skipped entirely when te_enable is off, leaving the batch unchanged.
+                    if bool(self.config.actor_rollout_ref.actor.get('te_enable', False)):
+                        with _timer('te_log_prob', timing_raw):
+                            metrics.update(self._compute_temporal_ensemble(batch))
+
                     if self.use_reference_policy:
                         # compute reference log_prob
                         with _timer('ref', timing_raw):
@@ -1321,31 +1185,6 @@ class RayPPOTrainer(object):
                         if 'grpo_filtered_frac' in batch.meta_info:
                             metrics['grpo/filtered_frac'] = batch.meta_info['grpo_filtered_frac']
 
-                        # Plan FORMAT reward (default OFF): per-turn shaping bonus
-                        # on the advantage for well-formed Thought->Plan->Action
-                        # turns, to counter inline-plan decay. Driver-side, guarded.
-                        if self.plan_format_reward_enable:
-                            # format reward needs a plan to score -> only fire when
-                            # inline is ACTIVE (enabled and past inline warmup), and
-                            # past its own warmup. Otherwise it would penalize every
-                            # (plan-less) turn during the original-prompt window.
-                            _inl_warm = int(self.config.data.get('plan_inline_warmup_steps', 0)) \
-                                if hasattr(self.config, 'data') else 0
-                            _inline_active = (hasattr(self.config, 'data')
-                                              and bool(self.config.data.get('plan_inline_enable', False))
-                                              and self.global_steps >= _inl_warm)
-                            if self.global_steps < self.plan_format_reward_warmup_steps or not _inline_active:
-                                # still in warmup -> format reward dormant
-                                metrics['plan_format/warmup'] = 1.0
-                            else:
-                                try:
-                                    with _timer('plan_format_reward', timing_raw):
-                                        metrics.update(self._apply_plan_format_reward(batch))
-                                    metrics['plan_format/warmup'] = 0.0
-                                except Exception as e:
-                                    print(f'[plan_format] skipped due to: {e}')
-                                    metrics['plan_format/error'] = 1.0
-
                     # update critic
                     if self.use_critic:
                         with _timer('update_critic', timing_raw):
@@ -1361,35 +1200,34 @@ class RayPPOTrainer(object):
                         actor_output_metrics = reduce_metrics(actor_output.meta_info['metrics'])
                         metrics.update(actor_output_metrics)
 
-                        # Optional plan-forecast SFT update: predict the realized
-                        # next-K actions (the "plan"), supervised by what actually
+                        # Optional action-forecast SFT update: predict the realized
+                        # next-K actions (the "forecast"), supervised by what actually
                         # happened. Separate forward, does NOT touch PG. Default OFF.
                         try:
-                            self.plan_forecast_coeff_scheduler.set_global_steps(self.global_steps)
-                            pf_coef = float(self.plan_forecast_coeff_scheduler.get_coeff())
-                            metrics['plan_forecast/coef_sched'] = pf_coef
-                            pf_data, pf_meta = self._build_plan_forecast_dataproto(batch, pf_coef)
-                            metrics.update(pf_meta)
-                            if pf_data is not None and len(pf_data) > 0:
-                                pf_data.meta_info['plan_forecast_coef'] = pf_coef
-                                pf_data_padded, _pf_pad = pad_dataproto_to_divisor(
-                                    pf_data, self.actor_rollout_wg.world_size)
-                                pf_data_padded.meta_info['plan_forecast_coef'] = pf_coef
-                                with _timer('update_plan_forecast', timing_raw):
-                                    pf_output = self.actor_rollout_wg.update_actor_plan_forecast(pf_data_padded)
-                                metrics.update(reduce_metrics(pf_output.meta_info['metrics']))
-                                metrics['plan_forecast/num_samples'] = len(pf_data)
+                            af_coef = float(self.config.actor_rollout_ref.actor.get('action_forecast_coef', 0.0))
+                            metrics['action_forecast/coef_sched'] = af_coef
+                            af_data, af_meta = self._build_action_forecast_dataproto(batch, af_coef)
+                            metrics.update(af_meta)
+                            if af_data is not None and len(af_data) > 0:
+                                af_data.meta_info['action_forecast_coef'] = af_coef
+                                af_data_padded, _af_pad = pad_dataproto_to_divisor(
+                                    af_data, self.actor_rollout_wg.world_size)
+                                af_data_padded.meta_info['action_forecast_coef'] = af_coef
+                                with _timer('update_action_forecast', timing_raw):
+                                    af_output = self.actor_rollout_wg.update_actor_action_forecast(af_data_padded)
+                                metrics.update(reduce_metrics(af_output.meta_info['metrics']))
+                                metrics['action_forecast/num_samples'] = len(af_data)
                             else:
-                                metrics['plan_forecast/num_samples'] = 0
+                                metrics['action_forecast/num_samples'] = 0
                         except Exception as e:
-                            print(f"[plan_forecast] skipped due to error: {e}", flush=True)
-                            metrics['plan_forecast/error'] = 1.0
+                            print(f"[action_forecast] skipped due to error: {e}", flush=True)
+                            metrics['action_forecast/error'] = 1.0
 
                         # Optional SFT-ablation (RFT) control: one extra SFT round on
                         # this step's WINNING trajectories, behavior-cloning the real
-                        # assistant turns. Mutually exclusive with plan_forecast (asserted
-                        # at init). Same optimizer path (update_actor_plan_forecast), only
-                        # the target differs -> a clean A/B against plan_forecast SFT.
+                        # assistant turns. Mutually exclusive with action_forecast (asserted
+                        # at init). Same optimizer path (update_actor_action_forecast), only
+                        # the target differs -> a clean A/B against action_forecast SFT.
                         try:
                             _acfg = self.config.actor_rollout_ref.actor
                             if bool(_acfg.get('sft_ablation_enable', False)):
@@ -1398,14 +1236,14 @@ class RayPPOTrainer(object):
                                 sft_data, sft_meta = self._build_sft_ablation_dataproto(batch, abl_coef)
                                 metrics.update(sft_meta)
                                 if sft_data is not None and len(sft_data) > 0:
-                                    sft_data.meta_info['plan_forecast_coef'] = abl_coef
+                                    sft_data.meta_info['action_forecast_coef'] = abl_coef
                                     sft_data.meta_info['sft_metric_prefix'] = 'sft_ablation'
                                     sft_padded, _sft_pad = pad_dataproto_to_divisor(
                                         sft_data, self.actor_rollout_wg.world_size)
-                                    sft_padded.meta_info['plan_forecast_coef'] = abl_coef
+                                    sft_padded.meta_info['action_forecast_coef'] = abl_coef
                                     sft_padded.meta_info['sft_metric_prefix'] = 'sft_ablation'
                                     with _timer('update_sft_ablation', timing_raw):
-                                        sft_output = self.actor_rollout_wg.update_actor_plan_forecast(sft_padded)
+                                        sft_output = self.actor_rollout_wg.update_actor_action_forecast(sft_padded)
                                     metrics.update(reduce_metrics(sft_output.meta_info['metrics']))
                                     metrics['sft_ablation/num_samples'] = len(sft_data)
                                 else:

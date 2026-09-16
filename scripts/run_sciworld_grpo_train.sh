@@ -17,10 +17,16 @@ BASE_PORT="${BASE_PORT:-36101}"
 CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
 IFS=',' read -r -a GPU_ARRAY <<< "${CUDA_VISIBLE_DEVICES}"
 NUM_GPUS="${#GPU_ARRAY[@]}"
+# Env servers per GPU. Must match the launcher's ENVS_PER_GPU, or the addresses built
+# here will not match the servers that were started. SciWorld's env.step is synchronous
+# pure Python, so one server per GPU serializes all of that rank's trajectories; more
+# servers speed up rollout without changing results. 1 keeps the original layout.
+ENVS_PER_GPU="${ENVS_PER_GPU:-1}"
+NUM_ENVS=$((NUM_GPUS * ENVS_PER_GPU))
 
 # Automatically construct comma-separated list of environment addresses
 ENV_ADDR_LIST=""
-for i in $(seq 0 $((NUM_GPUS - 1))); do
+for i in $(seq 0 $((NUM_ENVS - 1))); do
   PORT=$((BASE_PORT + i))
   ADDR="http://${ENV_ADDR_HOST}:${PORT}"
   if [[ -z "${ENV_ADDR_LIST}" ]]; then
@@ -44,6 +50,8 @@ PPO_MINI_BATCH_SIZE="${PPO_MINI_BATCH_SIZE:-8}"
 PPO_MICRO_BATCH_SIZE_PER_GPU="${PPO_MICRO_BATCH_SIZE_PER_GPU:-1}"
 PPO_EPOCHS="${PPO_EPOCHS:-1}"
 TOTAL_EPOCHS="${TOTAL_EPOCHS:-2}"
+# Exact step budget; null trains for TOTAL_EPOCHS.
+TOTAL_TRAINING_STEPS="${TOTAL_TRAINING_STEPS:-null}"
 MAX_ROUNDS="${MAX_ROUNDS:-20}"
 MAX_PROMPT_LENGTH="${MAX_PROMPT_LENGTH:-2048}"
 MAX_RESPONSE_LENGTH="${MAX_RESPONSE_LENGTH:-4096}"
@@ -53,80 +61,43 @@ ROLLOUT_GPU_MEMORY_UTILIZATION="${ROLLOUT_GPU_MEMORY_UTILIZATION:-0.80}"
 SAVE_FREQ="${SAVE_FREQ:-50}"
 
 
-# Plan-forecast auxiliary SFT (DEFAULT OFF): each step predict the realized next-K
+# Action-forecast auxiliary SFT (DEFAULT OFF): each step predict the realized next-K
 # action commands (current included). Separate forward, CE loss * coef, no PG.
-PLAN_FORECAST_ENABLE="${PLAN_FORECAST_ENABLE:-True}"
-PLAN_FORECAST_COEF="${PLAN_FORECAST_COEF:-0.01}"
-PLAN_FORECAST_K="${PLAN_FORECAST_K:-3}"
-PLAN_FORECAST_GATE="${PLAN_FORECAST_GATE:-wins}"
-# --- Two ORTHOGONAL group knobs (compose; both distill successes only) ---
-# Group-success GATING (curriculum): filter WHICH groups' successes to distill by the
-# group's success-rate. off (use PLAN_FORECAST_GATE) | low (rate<=LOW) | low_high
-# (rate<=LOW OR >=HIGH, skip mid-rate groups where GRPO signal is strong). Default off.
-PLAN_FORECAST_GROUP_GATE="${PLAN_FORECAST_GROUP_GATE:-off}"
-PLAN_FORECAST_GROUP_LOW_THRESH="${PLAN_FORECAST_GROUP_LOW_THRESH:-0.5}"
-PLAN_FORECAST_GROUP_HIGH_THRESH="${PLAN_FORECAST_GROUP_HIGH_THRESH:-1.0}"
+ACTION_FORECAST_ENABLE="${ACTION_FORECAST_ENABLE:-True}"
+ACTION_FORECAST_COEF="${ACTION_FORECAST_COEF:-0.01}"
+ACTION_FORECAST_K="${ACTION_FORECAST_K:-3}"
+ACTION_FORECAST_GATE="${ACTION_FORECAST_GATE:-wins}"
 # Group-weight NORMALIZATION (stability): give every kept GRPO group the SAME total
-# plan-CE weight = the single PLAN_FORECAST_COEF, split EVENLY among its distilled
+# forecast-CE weight = the single ACTION_FORECAST_COEF, split EVENLY among its distilled
 # successful trajectories. As success-rate rises mid/late training, per-traj weight
 # shrinks and each group's contribution stays constant -> no SFT blow-up from more
-# successful samples. Applies to whatever gating keeps.
-PLAN_FORECAST_GROUP_NORM="${PLAN_FORECAST_GROUP_NORM:-True}"
-# group_dedup (default True): when group_norm on, split each group's weight over its
-# DISTINCT successful action-sequences instead of per-trajectory -> duplicate rollouts
-# don't inflate weight (within-group action repetition is heavy mid/late training).
-PLAN_FORECAST_GROUP_DEDUP="${PLAN_FORECAST_GROUP_DEDUP:-False}"
-# Horizon-growth schedule (curriculum): grow the forecast target length over
-# training. Format "startStep:kMin:kMax,..." (start-step semantics, last stage
-# persists); each per-step sample draws k uniformly in the active [kMin,kMax] and
-# the prompt/plan-block align to the realized length. Empty = OFF (use PLAN_FORECAST_K).
-# First stage MUST start at 0. Example: "0:2:3,40:2:4,80:3:5".
-PLAN_FORECAST_K_SCHEDULE="${PLAN_FORECAST_K_SCHEDULE:-}"
+# successful samples.
+ACTION_FORECAST_GROUP_NORM="${ACTION_FORECAST_GROUP_NORM:-True}"
 # skip_invalid: build the forecast target from only EFFECTIVE actions — drop actions
 # whose env result was invalid / no-effect ("Nothing happens." / "Invalid Action." /
 # "No known action..."; per-env, auto-selected by task_name). Default off.
-PLAN_FORECAST_SKIP_INVALID="${PLAN_FORECAST_SKIP_INVALID:-True}"
-PLAN_FORECAST_SUCCESS_THRESHOLD="${PLAN_FORECAST_SUCCESS_THRESHOLD:-0.5}"
-PLAN_FORECAST_MAX_LENGTH="${PLAN_FORECAST_MAX_LENGTH:-4096}"
-# plan_forecast target: action (predict realized next-K actions; block2-success,
-# grounded) | subgoal (predict next-K hindsight-confirmed achieved sub-goals).
-PLAN_FORECAST_TARGET="${PLAN_FORECAST_TARGET:-action}"
-# plan_forecast seq: separate (block2 — synthetic prompt + bare list, standalone;
-# use with inline OFF) | inline_consistent (SFT sample matches a real rollout turn
-# obs->Plan+Action; use with inline ON). Auto-falls-back to separate if inline off.
-PLAN_FORECAST_SEQ="${PLAN_FORECAST_SEQ:-separate}"
-# plan_forecast_coef anneal: fixed | linear | power | cutoff (start = PLAN_FORECAST_COEF).
-PLAN_FORECAST_COEF_ANNEAL="${PLAN_FORECAST_COEF_ANNEAL:-fixed}"
-PLAN_FORECAST_COEF_END="${PLAN_FORECAST_COEF_END:-0.0}"
-PLAN_FORECAST_COEF_HORIZON="${PLAN_FORECAST_COEF_HORIZON:-50}"
-PLAN_FORECAST_COEF_POWER="${PLAN_FORECAST_COEF_POWER:-2.0}"
-PLAN_FORECAST_COEF_CUTOFF_STEP="${PLAN_FORECAST_COEF_CUTOFF_STEP:-0}"
-# Plan FORMAT reward (DEFAULT OFF): per-turn shaping bonus on advantage for a
-# well-formed Thought->Plan->Action turn (counters inline-plan decay under RL).
-# bonus_t = COEF*(score-BASELINE) on the turn's tokens; baseline 0.5 = symmetric.
-PLAN_FORMAT_REWARD_ENABLE="${PLAN_FORMAT_REWARD_ENABLE:-False}"
-PLAN_FORMAT_REWARD_COEF="${PLAN_FORMAT_REWARD_COEF:-0.05}"
-PLAN_FORMAT_REWARD_BASELINE="${PLAN_FORMAT_REWARD_BASELINE:-0.5}"
-PLAN_FORMAT_REWARD_CLIP="${PLAN_FORMAT_REWARD_CLIP:-0.0}"
-# penalty_only: only penalize turns that DROP the plan (never reward keeping it).
-PLAN_FORMAT_REWARD_PENALTY_ONLY="${PLAN_FORMAT_REWARD_PENALTY_ONLY:-True}"
-# warmup: keep format reward OFF until global_step >= this (learn task first).
-PLAN_FORMAT_REWARD_WARMUP_STEPS="${PLAN_FORMAT_REWARD_WARMUP_STEPS:-10}"
-# Block 1 (inline plan, DEFAULT OFF): model writes its next-K-action plan inside
-# the THOUGHT each turn (auto-eats PG, env still parses Action:). Pairs with block 2.
-PLAN_INLINE_ENABLE="${PLAN_INLINE_ENABLE:-False}"
-PLAN_INLINE_K="${PLAN_INLINE_K:-${PLAN_FORECAST_K}}"
-# inline plan style: actions (next-K actions) | todo (checkable sub-goal TODO
-# list with (done) marks; pair with PLAN_FORECAST_TARGET=subgoal).
-PLAN_INLINE_STYLE="${PLAN_INLINE_STYLE:-actions}"
-# per-turn reminder: re-state the Plan request after EVERY obs (one-time decays).
-PLAN_INLINE_PER_TURN="${PLAN_INLINE_PER_TURN:-False}"
-# inline warmup: use ORIGINAL prompt until global_step >= this, then introduce
-# the plan prompt (cold-start: let task competence build before planning).
-PLAN_INLINE_WARMUP_STEPS="${PLAN_INLINE_WARMUP_STEPS:-0}"
-# think reminder (alternative to inline plan, mutually exclusive): per-turn nudge
-# to reason in a Thought before the Action, WITHOUT forcing a Plan.
-THINK_REMINDER_ENABLE="${THINK_REMINDER_ENABLE:-False}"
+ACTION_FORECAST_SKIP_INVALID="${ACTION_FORECAST_SKIP_INVALID:-True}"
+ACTION_FORECAST_SUCCESS_THRESHOLD="${ACTION_FORECAST_SUCCESS_THRESHOLD:-0.5}"
+ACTION_FORECAST_MAX_LENGTH="${ACTION_FORECAST_MAX_LENGTH:-4096}"
+
+# Temporal Ensembling (see verl/agent_trainer/ppo/temporal_ensemble.py). Off by default;
+# with TE_ENABLE=False none of the TE code runs and the batch is unchanged.
+TE_ENABLE="${TE_ENABLE:-False}"
+TE_LAMBDA="${TE_LAMBDA:-0.0}"          # 0 = dry-run: diagnostics only, no gradient
+TE_ETA="${TE_ETA:-0.5}"                # forecast share of the target mixture
+TE_KL_TYPE="${TE_KL_TYPE:-low_var_kl}"
+# fullvocab: full-vocabulary per-token KL (the working form). token / seq are kept only
+# to reproduce runs where they degenerated (response-length blow-up; entropy blow-up).
+TE_MIX="${TE_MIX:-fullvocab}"
+TE_CENTER="${TE_CENTER:-True}"         # legacy token/seq forms only
+TE_WARMUP_STEPS="${TE_WARMUP_STEPS:-50}"
+TE_TRAJ_SUBSAMPLE="${TE_TRAJ_SUBSAMPLE:-1.0}"
+TE_MICRO_BATCH_SIZE_PER_GPU="${TE_MICRO_BATCH_SIZE_PER_GPU:-1}"
+
+# Pin vLLM's port search. Unset, vllm's get_open_port() probes with bind("",0) and the
+# port can be taken before it is used (TOCTOU) -- occasional with one run, frequent
+# with two on the same host. Set, it takes the retry-on-OSError path.
+export VLLM_PORT="${VLLM_PORT:-29700}"
 
 
 EXP_NAME="${EXP_NAME:-sciworld_grpo_qwen2.5_3b_$(date -u +%Y%m%d_%H%M%S)}"
@@ -178,12 +149,6 @@ exec env \
     data.train_batch_size="${TRAIN_BATCH_SIZE}" \
     data.max_prompt_length="${MAX_PROMPT_LENGTH}" \
     data.max_response_length="${MAX_RESPONSE_LENGTH}" \
-    +data.plan_inline_enable="${PLAN_INLINE_ENABLE}" \
-    +data.plan_inline_k="${PLAN_INLINE_K}" \
-    +data.plan_inline_style="${PLAN_INLINE_STYLE}" \
-    +data.plan_inline_per_turn="${PLAN_INLINE_PER_TURN}" \
-    +data.plan_inline_warmup_steps="${PLAN_INLINE_WARMUP_STEPS}" \
-    +data.think_reminder_enable="${THINK_REMINDER_ENABLE}" \
     actor_rollout_ref.agentgym.task_name="${TASK_NAME}" \
     actor_rollout_ref.agentgym.env_addr="'${ENV_ADDR}'" \
     actor_rollout_ref.agentgym.timeout=2400 \
@@ -215,31 +180,24 @@ exec env \
     trainer.resume_mode="${RESUME_MODE}" \
     trainer.save_freq="${SAVE_FREQ}" \
     trainer.total_epochs="${TOTAL_EPOCHS}" \
+    trainer.total_training_steps="${TOTAL_TRAINING_STEPS}" \
     trainer.nnodes=1 \
     trainer.n_gpus_per_node="${NUM_GPUS}" \
-    +actor_rollout_ref.actor.plan_forecast_enable="${PLAN_FORECAST_ENABLE}" \
-    +actor_rollout_ref.actor.plan_forecast_coef="${PLAN_FORECAST_COEF}" \
-    +actor_rollout_ref.actor.plan_forecast_k="${PLAN_FORECAST_K}" \
-    +actor_rollout_ref.actor.plan_forecast_gate="${PLAN_FORECAST_GATE}" \
-    +actor_rollout_ref.actor.plan_forecast_group_gate="${PLAN_FORECAST_GROUP_GATE}" \
-    +actor_rollout_ref.actor.plan_forecast_group_low_thresh="${PLAN_FORECAST_GROUP_LOW_THRESH}" \
-    +actor_rollout_ref.actor.plan_forecast_group_high_thresh="${PLAN_FORECAST_GROUP_HIGH_THRESH}" \
-    +actor_rollout_ref.actor.plan_forecast_group_norm="${PLAN_FORECAST_GROUP_NORM}" \
-    +actor_rollout_ref.actor.plan_forecast_group_dedup="${PLAN_FORECAST_GROUP_DEDUP}" \
-    +actor_rollout_ref.actor.plan_forecast_k_schedule="'${PLAN_FORECAST_K_SCHEDULE}'" \
-    +actor_rollout_ref.actor.plan_forecast_skip_invalid="${PLAN_FORECAST_SKIP_INVALID}" \
-    +actor_rollout_ref.actor.plan_forecast_success_threshold="${PLAN_FORECAST_SUCCESS_THRESHOLD}" \
-    +actor_rollout_ref.actor.plan_forecast_max_length="${PLAN_FORECAST_MAX_LENGTH}" \
-    +actor_rollout_ref.actor.plan_forecast_target="${PLAN_FORECAST_TARGET}" \
-    +actor_rollout_ref.actor.plan_forecast_seq="${PLAN_FORECAST_SEQ}" \
-    +actor_rollout_ref.actor.plan_forecast_coef_anneal="${PLAN_FORECAST_COEF_ANNEAL}" \
-    +actor_rollout_ref.actor.plan_forecast_coef_end="${PLAN_FORECAST_COEF_END}" \
-    +actor_rollout_ref.actor.plan_forecast_coef_horizon="${PLAN_FORECAST_COEF_HORIZON}" \
-    +actor_rollout_ref.actor.plan_forecast_coef_power="${PLAN_FORECAST_COEF_POWER}" \
-    +actor_rollout_ref.actor.plan_forecast_coef_cutoff_step="${PLAN_FORECAST_COEF_CUTOFF_STEP}" \
-    +actor_rollout_ref.actor.plan_format_reward_enable="${PLAN_FORMAT_REWARD_ENABLE}" \
-    +actor_rollout_ref.actor.plan_format_reward_coef="${PLAN_FORMAT_REWARD_COEF}" \
-    +actor_rollout_ref.actor.plan_format_reward_baseline="${PLAN_FORMAT_REWARD_BASELINE}" \
-    +actor_rollout_ref.actor.plan_format_reward_clip="${PLAN_FORMAT_REWARD_CLIP}" \
-    +actor_rollout_ref.actor.plan_format_reward_penalty_only="${PLAN_FORMAT_REWARD_PENALTY_ONLY}" \
-    +actor_rollout_ref.actor.plan_format_reward_warmup_steps="${PLAN_FORMAT_REWARD_WARMUP_STEPS}"
+    +actor_rollout_ref.actor.action_forecast_enable="${ACTION_FORECAST_ENABLE}" \
+    +actor_rollout_ref.actor.action_forecast_coef="${ACTION_FORECAST_COEF}" \
+    +actor_rollout_ref.actor.action_forecast_k="${ACTION_FORECAST_K}" \
+    +actor_rollout_ref.actor.action_forecast_gate="${ACTION_FORECAST_GATE}" \
+    +actor_rollout_ref.actor.action_forecast_group_norm="${ACTION_FORECAST_GROUP_NORM}" \
+    +actor_rollout_ref.actor.action_forecast_skip_invalid="${ACTION_FORECAST_SKIP_INVALID}" \
+    +actor_rollout_ref.actor.action_forecast_success_threshold="${ACTION_FORECAST_SUCCESS_THRESHOLD}" \
+    +actor_rollout_ref.actor.action_forecast_max_length="${ACTION_FORECAST_MAX_LENGTH}" \
+    +actor_rollout_ref.actor.te_enable="${TE_ENABLE}" \
+    +actor_rollout_ref.actor.te_lambda="${TE_LAMBDA}" \
+    +actor_rollout_ref.actor.te_eta="${TE_ETA}" \
+    +actor_rollout_ref.actor.te_kl_type="${TE_KL_TYPE}" \
+    +actor_rollout_ref.actor.te_mix="${TE_MIX}" \
+    +actor_rollout_ref.actor.te_center="${TE_CENTER}" \
+    +actor_rollout_ref.actor.te_warmup_steps="${TE_WARMUP_STEPS}" \
+    +actor_rollout_ref.actor.te_traj_subsample="${TE_TRAJ_SUBSAMPLE}" \
+    +actor_rollout_ref.actor.te_micro_batch_size_per_gpu="${TE_MICRO_BATCH_SIZE_PER_GPU}" \
+    +actor_rollout_ref.rollout.te_enable="${TE_ENABLE}"
