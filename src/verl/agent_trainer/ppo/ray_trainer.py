@@ -1553,6 +1553,13 @@ class RayPPOTrainer(object):
                                                   lam=self.config.algorithm.lam,
                                                   num_repeat=self.config.actor_rollout_ref.rollout.n)
 
+                        # Surface the degenerate-group filter. compute_advantage stashes
+                        # this in meta_info, and without lifting it into metrics there is
+                        # no way to tell a filtered run from an unfiltered one -- the flag
+                        # is an env var, so a silent no-op looks exactly like a real run.
+                        if 'grpo_filtered_frac' in batch.meta_info:
+                            metrics['grpo/filtered_frac'] = batch.meta_info['grpo_filtered_frac']
+
                         # HCAPO path (training-free): re-prompt the frozen
                         # policy with the realized outcome, form per-action
                         # hindsight Q-values, add the cross-state-normalized
