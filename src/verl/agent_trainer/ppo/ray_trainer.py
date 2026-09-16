@@ -191,18 +191,38 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
         token_level_rewards = data.batch['token_level_rewards']
         index = data.non_tensor_batch['uid']
         response_mask = data.batch['response_mask']
-        # Variance-based trajectory filtering (RAGEN). A group whose rollouts all scored
-        # the same already yields zero advantage, but under token-mean aggregation its
-        # tokens still sit in the loss denominator. On tau2 78.7% of groups are
-        # degenerate, so the informative 21% get their gradient diluted roughly 5x.
-        # Dropping those samples from the mask removes them from numerator and
-        # denominator alike. Off by default: it changes the effective step size, so it
-        # is not something to enable silently in a run meant to match a published one.
+        # Variance-based trajectory filtering (RAGEN), zeroing the mask of samples whose
+        # group has no within-group spread.
+        #
+        # Read this before enabling it. With ppo_micro_batch_size_per_gpu=1 the policy
+        # loss is a masked_mean *within each sample*, then divided by a fixed
+        # gradient_accumulation. A degenerate sample already contributes 0 to the
+        # numerator (its advantage is 0) while still counting in that fixed denominator,
+        # so filtering does not redirect the gradient -- it scales it. On tau2, where
+        # ~79% of groups are degenerate, enabling this is close to a 5x learning-rate
+        # increase and little else. Prefer changing the learning rate, which is at least
+        # legible.
+        #
+        # It also cannot simply zero the mask: a fully masked sample makes masked_mean
+        # divide by zero, and with micro_bsz=1 that is most micro-batches. Run 23462
+        # produced actor/grad_norm=nan from step 1 and destroyed the policy within 8
+        # steps. The guard below keeps the whole batch when filtering would leave too
+        # little to train on.
         if os.environ.get('GRPO_FILTER_DEGENERATE') == '1':
-            response_mask, n_drop, n_tot = _filter_degenerate_groups(
+            filtered, n_drop, n_tot = _filter_degenerate_groups(
                 token_level_rewards, response_mask, index)
-            data.batch['response_mask'] = response_mask
-            data.meta_info['grpo_filtered_frac'] = n_drop / max(1, n_tot)
+            frac = n_drop / max(1, n_tot)
+            # Below this many surviving groups the remaining gradient is one or two
+            # trajectories wide and the update is pure variance, so keep the batch
+            # intact and say so rather than taking a step off a single sample.
+            if n_tot - n_drop >= max(2, int(0.1 * n_tot)):
+                data.batch['response_mask'] = filtered
+                data.meta_info['grpo_filter_applied'] = 1.0
+            else:
+                print(f"[grpo-filter] only {n_tot - n_drop}/{n_tot} groups survive; "
+                      f"keeping the full batch this step")
+                data.meta_info['grpo_filter_applied'] = 0.0
+            data.meta_info['grpo_filtered_frac'] = frac
         advantages, returns = core_algos.compute_grpo_outcome_advantage(token_level_rewards=token_level_rewards,
                                                                         eos_mask=response_mask,
                                                                         index=index)
