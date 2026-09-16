@@ -34,7 +34,7 @@ from verl.single_controller.base import Worker
 from verl.single_controller.ray import RayResourcePool, RayWorkerGroup, RayClassWithInitArgs
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.agent_trainer.ppo import core_algos
-from verl.agent_trainer.ppo.plan_forecast import build_plan_forecast_batch
+from verl.agent_trainer.ppo.action_forecast import build_action_forecast_batch
 # verl.agent_trainer.ppo.sft_ablation is not present in this checkout (never
 # committed), and importing it at module scope makes *every* run fail on import. The
 # feature is off by default, so bind the symbol lazily and only fail if it is enabled.
@@ -617,11 +617,11 @@ class RayPPOTrainer(object):
             raise NotImplementedError
         print(f'Total training steps: {self.total_training_steps}')
 
-        # plan_forecast and the sft-ablation (RFT) control are MUTUALLY EXCLUSIVE:
+        # action_forecast and the sft-ablation (RFT) control are MUTUALLY EXCLUSIVE:
         # they share one optimizer path and are meant to be A/B'd, never combined.
         _acfg = self.config.actor_rollout_ref.actor
-        if bool(_acfg.get('plan_forecast_enable', False)) and bool(_acfg.get('sft_ablation_enable', False)):
-            raise ValueError("plan_forecast_enable and sft_ablation_enable are mutually "
+        if bool(_acfg.get('action_forecast_enable', False)) and bool(_acfg.get('sft_ablation_enable', False)):
+            raise ValueError("action_forecast_enable and sft_ablation_enable are mutually "
                              "exclusive — enable exactly one.")
 
         OmegaConf.set_struct(self.config, True)
@@ -812,12 +812,12 @@ class RayPPOTrainer(object):
         if msgs is None or 'turn_ids' not in batch.batch.keys():
             return {'te/skipped': 1.0}
 
-        k = int(acfg.get('plan_forecast_k', 3))
+        k = int(acfg.get('action_forecast_k', 3))
         te_batch, index, meta = build_te_batch(
             msgs, self.tokenizer, k=k,
-            skip_invalid=bool(acfg.get('plan_forecast_skip_invalid', True)),
+            skip_invalid=bool(acfg.get('action_forecast_skip_invalid', True)),
             env=str(self.config.actor_rollout_ref.agentgym.get('task_name', 'alfworld')),
-            max_length=int(acfg.get('plan_forecast_max_length', 4096)),
+            max_length=int(acfg.get('action_forecast_max_length', 4096)),
             pad_token_id=self.tokenizer.pad_token_id or 0,
             traj_subsample=float(acfg.get('te_traj_subsample', 1.0)),
             rng=_random.Random(self.global_steps),
@@ -925,22 +925,22 @@ class RayPPOTrainer(object):
         meta['te/lambda_effective'] = lam
         return meta
 
-    def _build_plan_forecast_dataproto(self, batch: DataProto, coef: float):
-        """Build a plan-forecast SFT DataProto (predict realized next-K actions).
+    def _build_action_forecast_dataproto(self, batch: DataProto, coef: float):
+        """Build a action-forecast SFT DataProto (predict realized next-K actions).
 
         ``coef`` is the CURRENT (annealed) coefficient. Returns (dataproto, meta)
         or (None, meta). ``None`` when disabled, coef<=0, no ``rollout_messages``,
         or no qualifying step. Wins-gate uses per-traj reward from ``traj_return``
         (fallback: token_level_scores.sum)."""
         actor_cfg = self.config.actor_rollout_ref.actor
-        if not actor_cfg.get('plan_forecast_enable', False):
+        if not actor_cfg.get('action_forecast_enable', False):
             return None, {}
         if coef <= 0:
-            return None, {'plan_forecast/coef': 0.0}
+            return None, {'action_forecast/coef': 0.0}
 
         messages_list = batch.non_tensor_batch.get('rollout_messages', None)
         if messages_list is None:
-            return None, {'plan_forecast/skipped_no_msgs': 1.0}
+            return None, {'action_forecast/skipped_no_msgs': 1.0}
 
         rewards = None
         if 'traj_return' in batch.batch.keys():
@@ -950,30 +950,30 @@ class RayPPOTrainer(object):
 
         # skip_invalid: drop actions whose env result was invalid/no-effect from the
         # forecast target (per-env patterns keyed by the task name). Default off.
-        skip_invalid = bool(actor_cfg.get('plan_forecast_skip_invalid', False))
+        skip_invalid = bool(actor_cfg.get('action_forecast_skip_invalid', False))
         try:
             env_name = str(self.config.actor_rollout_ref.agentgym.get('task_name', 'alfworld'))
         except Exception:
             env_name = 'alfworld'
 
-        # group_norm: give each group's successes equal total plan-CE weight
+        # group_norm: give each group's successes equal total forecast-CE weight
         # (needs uid aligned to rollout_messages). Default off.
-        group_norm = bool(actor_cfg.get('plan_forecast_group_norm', False))
+        group_norm = bool(actor_cfg.get('action_forecast_group_norm', False))
         group_ids = None
         if group_norm:
             _uid = batch.non_tensor_batch.get('uid', None)
             if _uid is not None:
                 group_ids = list(_uid)
 
-        assembled, meta = build_plan_forecast_batch(
+        assembled, meta = build_action_forecast_batch(
             messages_list=list(messages_list),
             tokenizer=self.tokenizer,
             rewards=rewards,
-            k=int(actor_cfg.get('plan_forecast_k', 3)),
-            gate=str(actor_cfg.get('plan_forecast_gate', 'wins')),
-            success_threshold=float(actor_cfg.get('plan_forecast_success_threshold', 0.5)),
-            max_length=int(actor_cfg.get('plan_forecast_max_length', 4096)),
-            max_samples_per_trajectory=actor_cfg.get('plan_forecast_max_samples_per_traj', None),
+            k=int(actor_cfg.get('action_forecast_k', 3)),
+            gate=str(actor_cfg.get('action_forecast_gate', 'wins')),
+            success_threshold=float(actor_cfg.get('action_forecast_success_threshold', 0.5)),
+            max_length=int(actor_cfg.get('action_forecast_max_length', 4096)),
+            max_samples_per_trajectory=actor_cfg.get('action_forecast_max_samples_per_traj', None),
             skip_invalid=skip_invalid,
             env=env_name,
             group_ids=group_ids,
@@ -985,8 +985,8 @@ class RayPPOTrainer(object):
 
     def _build_sft_ablation_dataproto(self, batch: DataProto, coef: float):
         """Build the RFT-style SFT-ablation DataProto (behavior-clone this step's
-        winning trajectories). Control for plan-forecast; mutually exclusive with it.
-        Same win-gating / reward source as ``_build_plan_forecast_dataproto``."""
+        winning trajectories). Control for action-forecast; mutually exclusive with it.
+        Same win-gating / reward source as ``_build_action_forecast_dataproto``."""
         actor_cfg = self.config.actor_rollout_ref.actor
         if not actor_cfg.get('sft_ablation_enable', False):
             return None, {}
@@ -1200,34 +1200,34 @@ class RayPPOTrainer(object):
                         actor_output_metrics = reduce_metrics(actor_output.meta_info['metrics'])
                         metrics.update(actor_output_metrics)
 
-                        # Optional plan-forecast SFT update: predict the realized
-                        # next-K actions (the "plan"), supervised by what actually
+                        # Optional action-forecast SFT update: predict the realized
+                        # next-K actions (the "forecast"), supervised by what actually
                         # happened. Separate forward, does NOT touch PG. Default OFF.
                         try:
-                            pf_coef = float(self.config.actor_rollout_ref.actor.get('plan_forecast_coef', 0.0))
-                            metrics['plan_forecast/coef_sched'] = pf_coef
-                            pf_data, pf_meta = self._build_plan_forecast_dataproto(batch, pf_coef)
-                            metrics.update(pf_meta)
-                            if pf_data is not None and len(pf_data) > 0:
-                                pf_data.meta_info['plan_forecast_coef'] = pf_coef
-                                pf_data_padded, _pf_pad = pad_dataproto_to_divisor(
-                                    pf_data, self.actor_rollout_wg.world_size)
-                                pf_data_padded.meta_info['plan_forecast_coef'] = pf_coef
-                                with _timer('update_plan_forecast', timing_raw):
-                                    pf_output = self.actor_rollout_wg.update_actor_plan_forecast(pf_data_padded)
-                                metrics.update(reduce_metrics(pf_output.meta_info['metrics']))
-                                metrics['plan_forecast/num_samples'] = len(pf_data)
+                            af_coef = float(self.config.actor_rollout_ref.actor.get('action_forecast_coef', 0.0))
+                            metrics['action_forecast/coef_sched'] = af_coef
+                            af_data, af_meta = self._build_action_forecast_dataproto(batch, af_coef)
+                            metrics.update(af_meta)
+                            if af_data is not None and len(af_data) > 0:
+                                af_data.meta_info['action_forecast_coef'] = af_coef
+                                af_data_padded, _af_pad = pad_dataproto_to_divisor(
+                                    af_data, self.actor_rollout_wg.world_size)
+                                af_data_padded.meta_info['action_forecast_coef'] = af_coef
+                                with _timer('update_action_forecast', timing_raw):
+                                    af_output = self.actor_rollout_wg.update_actor_action_forecast(af_data_padded)
+                                metrics.update(reduce_metrics(af_output.meta_info['metrics']))
+                                metrics['action_forecast/num_samples'] = len(af_data)
                             else:
-                                metrics['plan_forecast/num_samples'] = 0
+                                metrics['action_forecast/num_samples'] = 0
                         except Exception as e:
-                            print(f"[plan_forecast] skipped due to error: {e}", flush=True)
-                            metrics['plan_forecast/error'] = 1.0
+                            print(f"[action_forecast] skipped due to error: {e}", flush=True)
+                            metrics['action_forecast/error'] = 1.0
 
                         # Optional SFT-ablation (RFT) control: one extra SFT round on
                         # this step's WINNING trajectories, behavior-cloning the real
-                        # assistant turns. Mutually exclusive with plan_forecast (asserted
-                        # at init). Same optimizer path (update_actor_plan_forecast), only
-                        # the target differs -> a clean A/B against plan_forecast SFT.
+                        # assistant turns. Mutually exclusive with action_forecast (asserted
+                        # at init). Same optimizer path (update_actor_action_forecast), only
+                        # the target differs -> a clean A/B against action_forecast SFT.
                         try:
                             _acfg = self.config.actor_rollout_ref.actor
                             if bool(_acfg.get('sft_ablation_enable', False)):
@@ -1236,14 +1236,14 @@ class RayPPOTrainer(object):
                                 sft_data, sft_meta = self._build_sft_ablation_dataproto(batch, abl_coef)
                                 metrics.update(sft_meta)
                                 if sft_data is not None and len(sft_data) > 0:
-                                    sft_data.meta_info['plan_forecast_coef'] = abl_coef
+                                    sft_data.meta_info['action_forecast_coef'] = abl_coef
                                     sft_data.meta_info['sft_metric_prefix'] = 'sft_ablation'
                                     sft_padded, _sft_pad = pad_dataproto_to_divisor(
                                         sft_data, self.actor_rollout_wg.world_size)
-                                    sft_padded.meta_info['plan_forecast_coef'] = abl_coef
+                                    sft_padded.meta_info['action_forecast_coef'] = abl_coef
                                     sft_padded.meta_info['sft_metric_prefix'] = 'sft_ablation'
                                     with _timer('update_sft_ablation', timing_raw):
-                                        sft_output = self.actor_rollout_wg.update_actor_plan_forecast(sft_padded)
+                                        sft_output = self.actor_rollout_wg.update_actor_action_forecast(sft_padded)
                                     metrics.update(reduce_metrics(sft_output.meta_info['metrics']))
                                     metrics['sft_ablation/num_samples'] = len(sft_data)
                                 else:

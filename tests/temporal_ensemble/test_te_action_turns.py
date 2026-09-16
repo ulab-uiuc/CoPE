@@ -1,4 +1,4 @@
-"""TE 性质 6+8：build_plan_targets 的 action_turns 正确 + fut 无回归。
+"""TE 性质 6+8：build_action_targets 的 action_turns 正确 + fut 无回归。
 
 函数内部已有 assert 保证 [actions_seq[j] for j in sel] == fut，所以只要能跑通，
 fut 就没被改坏。这里额外验证：
@@ -25,7 +25,7 @@ def _tokenizer_path():
     return p
 
 import sys, random
-from verl.agent_trainer.ppo.plan_forecast import build_plan_targets
+from verl.agent_trainer.ppo.action_forecast import build_action_targets
 
 
 def test_te_action_turns():
@@ -44,8 +44,8 @@ def test_te_action_turns():
     res  = ['You are in the kitchen','No known action matches that input.',
             'The fridge is open','You pick up the cup']
     for k in (2,3,4):
-        for si, tl in ((True, build_plan_targets(mk(acts,res), k=k, skip_invalid=True,  env='sciworld')),
-                       (False, build_plan_targets(mk(acts,res), k=k, skip_invalid=False, env='sciworld'))):
+        for si, tl in ((True, build_action_targets(mk(acts,res), k=k, skip_invalid=True,  env='sciworld')),
+                       (False, build_action_targets(mk(acts,res), k=k, skip_invalid=False, env='sciworld'))):
             t0 = tl[0]['action_turns']
             assert t0[0] == 0, f"k={k} si={si}: 轮0 的 slot1 必须是轮0, 实际 {t0}"
             if si:
@@ -64,7 +64,7 @@ def test_te_action_turns():
                     assert at[0] == tg['src_turn'], "skip_invalid=False 时 slot1 必须就是发出轮"
 
     # 显式验证那个坑：发出轮自身动作无效时，slot1 的 k 已经 >= 1
-    t_skip = build_plan_targets(mk(acts,res), k=3, skip_invalid=True, env='sciworld')
+    t_skip = build_action_targets(mk(acts,res), k=3, skip_invalid=True, env='sciworld')
     bysrc = {tg['src_turn']: tg for tg in t_skip}
     assert 1 in bysrc, "轮1 应该仍然产出 target（它往后看仍有有效动作）"
     tg1 = bysrc[1]
@@ -85,6 +85,6 @@ def test_te_action_turns():
         r = [rng.choice(BAD) for _ in range(T)]
         for si in (True, False):
             for k in (1,2,3,4,5):
-                tg = build_plan_targets(mk(a,r), k=k, skip_invalid=si, env='sciworld')
+                tg = build_action_targets(mk(a,r), k=k, skip_invalid=si, env='sciworld')
                 n_tg += len(tg)
     print(f"  性质6 PASS: 200 条随机轨迹 × {{skip T/F}} × k∈1..5 共 {n_tg} 个 target，内部断言全未触发")

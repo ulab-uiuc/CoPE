@@ -72,24 +72,24 @@ ROLLOUT_GPU_MEMORY_UTILIZATION="${ROLLOUT_GPU_MEMORY_UTILIZATION:-0.40}"
 SAVE_FREQ="${SAVE_FREQ:-25}"
 
 
-# Plan-forecast auxiliary SFT (DEFAULT OFF): each step predict the realized next-K
+# Action-forecast auxiliary SFT (DEFAULT OFF): each step predict the realized next-K
 # action commands (current included). Separate forward, CE loss * coef, no PG.
-PLAN_FORECAST_ENABLE="${PLAN_FORECAST_ENABLE:-True}"
-PLAN_FORECAST_COEF="${PLAN_FORECAST_COEF:-0.01}"
-PLAN_FORECAST_K="${PLAN_FORECAST_K:-3}"
-PLAN_FORECAST_GATE="${PLAN_FORECAST_GATE:-wins}"
+ACTION_FORECAST_ENABLE="${ACTION_FORECAST_ENABLE:-True}"
+ACTION_FORECAST_COEF="${ACTION_FORECAST_COEF:-0.01}"
+ACTION_FORECAST_K="${ACTION_FORECAST_K:-3}"
+ACTION_FORECAST_GATE="${ACTION_FORECAST_GATE:-wins}"
 # Group-weight NORMALIZATION (stability): give every kept GRPO group the SAME total
-# plan-CE weight = the single PLAN_FORECAST_COEF, split EVENLY among its distilled
+# forecast-CE weight = the single ACTION_FORECAST_COEF, split EVENLY among its distilled
 # successful trajectories. As success-rate rises mid/late training, per-traj weight
 # shrinks and each group's contribution stays constant -> no SFT blow-up from more
 # successful samples.
-PLAN_FORECAST_GROUP_NORM="${PLAN_FORECAST_GROUP_NORM:-True}"
+ACTION_FORECAST_GROUP_NORM="${ACTION_FORECAST_GROUP_NORM:-True}"
 # skip_invalid: build the forecast target from only EFFECTIVE actions — drop actions
 # whose env result was invalid / no-effect ("Nothing happens." / "Invalid Action." /
 # "No known action..."; per-env, auto-selected by task_name). Default off.
-PLAN_FORECAST_SKIP_INVALID="${PLAN_FORECAST_SKIP_INVALID:-True}"
-PLAN_FORECAST_SUCCESS_THRESHOLD="${PLAN_FORECAST_SUCCESS_THRESHOLD:-0.5}"
-PLAN_FORECAST_MAX_LENGTH="${PLAN_FORECAST_MAX_LENGTH:-4096}"
+ACTION_FORECAST_SKIP_INVALID="${ACTION_FORECAST_SKIP_INVALID:-True}"
+ACTION_FORECAST_SUCCESS_THRESHOLD="${ACTION_FORECAST_SUCCESS_THRESHOLD:-0.5}"
+ACTION_FORECAST_MAX_LENGTH="${ACTION_FORECAST_MAX_LENGTH:-4096}"
 
 # Temporal Ensembling (see verl/agent_trainer/ppo/temporal_ensemble.py). Off by default;
 # with TE_ENABLE=False none of the TE code runs and the batch is unchanged.
@@ -200,14 +200,14 @@ exec env \
     trainer.total_training_steps="${TOTAL_TRAINING_STEPS}" \
     trainer.nnodes=1 \
     trainer.n_gpus_per_node="${NUM_GPUS}" \
-    +actor_rollout_ref.actor.plan_forecast_enable="${PLAN_FORECAST_ENABLE}" \
-    +actor_rollout_ref.actor.plan_forecast_coef="${PLAN_FORECAST_COEF}" \
-    +actor_rollout_ref.actor.plan_forecast_k="${PLAN_FORECAST_K}" \
-    +actor_rollout_ref.actor.plan_forecast_gate="${PLAN_FORECAST_GATE}" \
-    +actor_rollout_ref.actor.plan_forecast_group_norm="${PLAN_FORECAST_GROUP_NORM}" \
-    +actor_rollout_ref.actor.plan_forecast_skip_invalid="${PLAN_FORECAST_SKIP_INVALID}" \
-    +actor_rollout_ref.actor.plan_forecast_success_threshold="${PLAN_FORECAST_SUCCESS_THRESHOLD}" \
-    +actor_rollout_ref.actor.plan_forecast_max_length="${PLAN_FORECAST_MAX_LENGTH}" \
+    +actor_rollout_ref.actor.action_forecast_enable="${ACTION_FORECAST_ENABLE}" \
+    +actor_rollout_ref.actor.action_forecast_coef="${ACTION_FORECAST_COEF}" \
+    +actor_rollout_ref.actor.action_forecast_k="${ACTION_FORECAST_K}" \
+    +actor_rollout_ref.actor.action_forecast_gate="${ACTION_FORECAST_GATE}" \
+    +actor_rollout_ref.actor.action_forecast_group_norm="${ACTION_FORECAST_GROUP_NORM}" \
+    +actor_rollout_ref.actor.action_forecast_skip_invalid="${ACTION_FORECAST_SKIP_INVALID}" \
+    +actor_rollout_ref.actor.action_forecast_success_threshold="${ACTION_FORECAST_SUCCESS_THRESHOLD}" \
+    +actor_rollout_ref.actor.action_forecast_max_length="${ACTION_FORECAST_MAX_LENGTH}" \
     +actor_rollout_ref.actor.te_enable="${TE_ENABLE}" \
     +actor_rollout_ref.actor.te_lambda="${TE_LAMBDA}" \
     +actor_rollout_ref.actor.te_eta="${TE_ETA}" \

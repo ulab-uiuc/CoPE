@@ -441,10 +441,10 @@ class ActorRolloutRefWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    def update_actor_plan_forecast(self, data: DataProto):
-        """One plan-forecast SFT update (predict realized next-K actions).
+    def update_actor_action_forecast(self, data: DataProto):
+        """One action-forecast SFT update (predict realized next-K actions).
 
-        Incoming ``data`` is the output of ``plan_forecast.build_plan_forecast_batch``
+        Incoming ``data`` is the output of ``action_forecast.build_action_forecast_batch``
         (expects ``input_ids``/``attention_mask``/``position_ids``/``loss_mask``).
         DP dispatch + caller-side ``pad_dataproto_to_divisor`` keep every rank's
         sample count equal, so no FSDP collective desync.
@@ -460,18 +460,18 @@ class ActorRolloutRefWorker(Worker):
             load_fsdp_optimizer(optimizer=self.actor_optimizer, device_id=torch.cuda.current_device())
 
         data.batch = data.batch.cuda()
-        log_gpu_memory_usage('Before update plan-forecast', logger=logger)
+        log_gpu_memory_usage('Before update action-forecast', logger=logger)
 
         with self.ulysses_sharding_manager:
             data = self.ulysses_sharding_manager.preprocess_data(data=data)
-            with Timer(name='update_plan_forecast', logger=None) as timer:
-                metrics = self.actor.update_plan_forecast(data=data)
-            metrics['plan_forecast/step_time'] = timer.last
+            with Timer(name='update_action_forecast', logger=None) as timer:
+                metrics = self.actor.update_action_forecast(data=data)
+            metrics['action_forecast/step_time'] = timer.last
 
             self.actor_lr_scheduler.step()
-            metrics['plan_forecast/lr'] = self.actor_lr_scheduler.get_last_lr()[0]
+            metrics['action_forecast/lr'] = self.actor_lr_scheduler.get_last_lr()[0]
 
-            log_gpu_memory_usage('After update plan-forecast', logger=logger)
+            log_gpu_memory_usage('After update action-forecast', logger=logger)
             output = DataProto(meta_info={'metrics': metrics})
             output = self.ulysses_sharding_manager.postprocess_data(data=output)
             output = output.to('cpu')

@@ -1,17 +1,17 @@
-"""Plan-forecast auxiliary loss: at every step t the model predicts the NEXT K
-action commands it will take (the "plan"), supervised by the REALIZED future —
+"""Action-forecast auxiliary loss: at every step t the model predicts the NEXT K
+action commands it will take (the "forecast"), supervised by the REALIZED future —
 i.e. the actual actions a_t, a_{t+1}, ..., a_{t+K-1} taken in the rollout (the
-current action is INCLUDED, so plan[0] == the action committed this turn).
+current action is INCLUDED, so forecast[0] == the action committed this turn).
 
 Post-hoc and teacher-forced: chat-template re-assembly into standalone SFT samples,
 collated and scored with CE, targeting the agent's own future ACTION string. It is a
-SEPARATE forward pass (``update_plan_forecast``) and does NOT touch PG.
+SEPARATE forward pass (``update_action_forecast``) and does NOT touch PG.
 
 Leakage is intentionally ignored (per design): the realized future IS the target.
 
 Gating: ``gate='wins'`` (default) keeps only trajectories with reward above
 ``success_threshold`` so we never teach the model to foresee a flailing future;
-``gate='all'`` uses every trajectory (more data, but pulls plans toward bad
+``gate='all'`` uses every trajectory (more data, but pulls forecasts toward bad
 futures on losing rollouts — kept for ablation).
 
 PURE logic for sample assembly (stdlib + tokenizer only, CPU-testable). The CE
@@ -23,7 +23,7 @@ from __future__ import annotations
 import re
 from typing import Dict, List, Optional
 
-DEFAULT_PLAN_PROMPT = (
+DEFAULT_ACTION_FORECAST_PROMPT = (
     "Plan ahead: list the next {k} actions you will take to make progress on the "
     "task, starting with the action you take right now, one action per line."
 )
@@ -118,7 +118,7 @@ def is_invalid_outcome(result_obs: str, env: str = "alfworld") -> bool:
     return False
 
 
-def build_plan_targets(messages, k: int = 3, skip_invalid: bool = False,
+def build_action_targets(messages, k: int = 3, skip_invalid: bool = False,
                        env: str = "alfworld") -> List[Dict[str, object]]:
     """For each action turn t, return per-step targets.
 
@@ -175,7 +175,7 @@ def build_plan_targets(messages, k: int = 3, skip_invalid: bool = False,
     return out
 
 
-def build_plan_forecast_samples(
+def build_action_forecast_samples(
     messages,
     tokenizer,
     k: int = 3,
@@ -187,7 +187,7 @@ def build_plan_forecast_samples(
     """Per-step teacher-forced forecast-SFT samples for one trajectory.
 
     Target: the realized next-K bare action commands (grounded — does NOT
-    contaminate the no-plan rollout).
+    contaminate the rollout).
 
     Construction: prefix = convo[:obs_t+1] + a synthetic user prompt ("list the next
     K ..."); target = assistant(bare newline list, +EOS). Standalone — distinct from
@@ -203,14 +203,14 @@ def build_plan_forecast_samples(
 
     convo = _to_chat_list(messages)
     samples: List[Dict[str, object]] = []
-    for tgt in build_plan_targets(messages, k=k, skip_invalid=skip_invalid, env=env):
+    for tgt in build_action_targets(messages, k=k, skip_invalid=skip_invalid, env=env):
         items = (tgt.get('actions') or [])[:k]   # clamp to what's available (<= k)
         if not items:
             continue
         realized = len(items)
         # synthetic prompt formatted with the REALIZED count
         prefix = list(convo[:tgt['prefix_end'] + 1])
-        prefix.append({'role': 'user', 'content': DEFAULT_PLAN_PROMPT.format(k=realized)})
+        prefix.append({'role': 'user', 'content': DEFAULT_ACTION_FORECAST_PROMPT.format(k=realized)})
         target_msgs = [{'role': 'assistant', 'content': "\n".join(items)}]
         s = encode_sft_sample(tokenizer, prefix, target_msgs,
                               max_length=max_length, min_target_tokens=min_target_tokens)
@@ -225,7 +225,7 @@ def encode_sft_sample(tokenizer, prefix, target_msgs, max_length: int = 4096,
                       min_target_tokens: int = 1):
     """Tokenize a (prefix, target) chat pair into an SFT sample dict whose
     ``loss_mask`` covers ONLY the target (assistant) tokens — obs/prompt in the
-    prefix contribute zero loss. Shared by plan-forecast and the sft-ablation
+    prefix contribute zero loss. Shared by action-forecast and the sft-ablation
     control so both use byte-identical encoding (clean apples-to-apples). Returns
     None if templating fails or the target is shorter than ``min_target_tokens``."""
     import torch
@@ -275,7 +275,7 @@ def encode_sft_sample(tokenizer, prefix, target_msgs, max_length: int = 4096,
     }
 
 
-def build_plan_forecast_batch(
+def build_action_forecast_batch(
     messages_list,
     tokenizer,
     rewards: Optional[List[float]] = None,
@@ -293,15 +293,15 @@ def build_plan_forecast_batch(
 
     gate='wins' keeps only trajectories whose reward > success_threshold (needs
     ``rewards`` aligned to ``messages_list``); gate='all' keeps everything.
-    See build_plan_forecast_samples for the sample construction. Horizon is a
+    See build_action_forecast_samples for the sample construction. Horizon is a
     fixed ``k``. Reuses collate_sft_samples for padding.
 
     Group-weight NORMALIZATION (``group_norm``, needs ``group_ids`` = the GRPO ``uid``
     aligned to messages_list): distill successful trajectories only and give every
-    GROUP the SAME total plan-CE weight, split evenly over its distilled trajectories
+    GROUP the SAME total forecast-CE weight, split evenly over its distilled trajectories
     (1/m_g), so each group's contribution stays constant as success-rate rises -> no
     SFT blow-up. Emits per-sample ``loss_weight`` (renormalized to mean 1; the actor
-    applies it scaled by plan_forecast_coef).
+    applies it scaled by action_forecast_coef).
     """
     from verl.agent_trainer.ppo.sft_common import collate_sft_samples
 
@@ -319,7 +319,7 @@ def build_plan_forecast_batch(
         if (group_norm or gate == "wins") and not succ:
             continue
         n_traj_considered += 1
-        traj_samples = build_plan_forecast_samples(
+        traj_samples = build_action_forecast_samples(
             messages=messages, tokenizer=tokenizer, k=k,
             max_length=max_length,
             skip_invalid=skip_invalid, env=env)
@@ -362,14 +362,14 @@ def build_plan_forecast_batch(
     # realized-horizon metric (k_mean = mean realized target length after clamping)
     _ks = [int(s.get('k_realized', 0)) for s in all_samples]
     k_mean = (sum(_ks) / len(_ks)) if _ks else float(k)
-    meta = {"plan_forecast/n_samples": float(len(all_samples)),
-            "plan_forecast/n_traj_used": float(n_traj_used),
-            "plan_forecast/n_traj_considered": float(n_traj_considered),
-            "plan_forecast/gate_wins": 1.0 if gate == "wins" else 0.0,
-            "plan_forecast/k_mean": float(k_mean),
-            "plan_forecast/skip_invalid": 1.0 if skip_invalid else 0.0,
-            "plan_forecast/group_norm": 1.0 if group_norm else 0.0,
-            "plan_forecast/k": float(k_mean)}
+    meta = {"action_forecast/n_samples": float(len(all_samples)),
+            "action_forecast/n_traj_used": float(n_traj_used),
+            "action_forecast/n_traj_considered": float(n_traj_considered),
+            "action_forecast/gate_wins": 1.0 if gate == "wins" else 0.0,
+            "action_forecast/k_mean": float(k_mean),
+            "action_forecast/skip_invalid": 1.0 if skip_invalid else 0.0,
+            "action_forecast/group_norm": 1.0 if group_norm else 0.0,
+            "action_forecast/k": float(k_mean)}
     if group_norm and traj_records:
         from collections import Counter as _Counter, defaultdict as _dd
         _mg = _Counter(gid for gid, _, _, _ in traj_records)
@@ -391,12 +391,12 @@ def build_plan_forecast_batch(
         else:
             _wm, _wsd = (_w[0] if _w else 1.0), 0.0
         meta.update({
-            "plan_forecast/group_n_distilled": float(len(_mg)),
-            "plan_forecast/group_succ_traj_per_group_mean": float(sum(_mg.values()) / len(_mg)),
-            "plan_forecast/group_unique_frac": float(sum(_ratios) / len(_ratios)) if _ratios else 1.0,
-            "plan_forecast/batch_loss_weight_mean": float(_wm),
-            "plan_forecast/batch_loss_weight_std": float(_wsd),
-            "plan_forecast/batch_loss_weight_min": float(min(_w)) if _w else 1.0,
-            "plan_forecast/batch_loss_weight_max": float(max(_w)) if _w else 1.0,
+            "action_forecast/group_n_distilled": float(len(_mg)),
+            "action_forecast/group_succ_traj_per_group_mean": float(sum(_mg.values()) / len(_mg)),
+            "action_forecast/group_unique_frac": float(sum(_ratios) / len(_ratios)) if _ratios else 1.0,
+            "action_forecast/batch_loss_weight_mean": float(_wm),
+            "action_forecast/batch_loss_weight_std": float(_wsd),
+            "action_forecast/batch_loss_weight_min": float(min(_w)) if _w else 1.0,
+            "action_forecast/batch_loss_weight_max": float(max(_w)) if _w else 1.0,
         })
     return batch, meta

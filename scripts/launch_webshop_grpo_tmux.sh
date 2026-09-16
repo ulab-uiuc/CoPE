@@ -63,8 +63,8 @@ echo "Starting GRPO Training..."
 # are actually set in this shell — unset ones fall through to the defaults in
 # run_webshop_grpo_train.sh.
 FWD=""
-for v in PLAN_FORECAST_ENABLE PLAN_FORECAST_COEF PLAN_FORECAST_K PLAN_FORECAST_GATE \
-         PLAN_FORECAST_SUCCESS_THRESHOLD PLAN_FORECAST_MAX_LENGTH \
+for v in ACTION_FORECAST_ENABLE ACTION_FORECAST_COEF ACTION_FORECAST_K ACTION_FORECAST_GATE \
+         ACTION_FORECAST_SUCCESS_THRESHOLD ACTION_FORECAST_MAX_LENGTH \
          POLICY_LR ENTROPY_COEF \
          KL_COEF; do
   if [ -n "${!v:-}" ]; then FWD="${FWD} ${v}=${!v}"; fi

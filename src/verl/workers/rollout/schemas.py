@@ -62,7 +62,7 @@ def _action_token_mask(tokenizer, content: str, response_ids, task_name: str):
     """
     n = len(response_ids)
     try:
-        from verl.agent_trainer.ppo.plan_forecast import extract_action
+        from verl.agent_trainer.ppo.action_forecast import extract_action
         act = extract_action(content, env=(task_name or "").lower())
         if not act:
             return [True] * n

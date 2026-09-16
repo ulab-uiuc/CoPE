@@ -512,7 +512,7 @@ class DataParallelPPOActor(BasePPOActor):
             del logits
         torch.cuda.empty_cache()
 
-        K = int(self.config.get('plan_forecast_k', 3))   # at most K slots per sample
+        K = int(self.config.get('action_forecast_k', 3))   # at most K slots per sample
         t = torch.full((len(out), max(K, 1)), float('nan'), dtype=torch.float32)
         for i, r in enumerate(out):
             r = r[:K]
@@ -537,21 +537,21 @@ class DataParallelPPOActor(BasePPOActor):
             tp_ = torch.zeros((len(out), 1, TE_TOPM_MAXTOK, TE_TOPM), dtype=torch.float32)
         return t, tt, ti_, tp_
 
-    def update_plan_forecast(self, data: DataProto):
-        """SFT update on a plan-forecast batch (predict the realized next-K actions).
+    def update_action_forecast(self, data: DataProto):
+        """SFT update on a action-forecast batch (predict the realized next-K actions).
 
         Takes a chat-template-assembled SFT batch
         (``input_ids``/``attention_mask``/``position_ids``/``loss_mask``, loss only
         on the realized next-K action tokens) and CE-from-logits over it.
-        Scaled by ``plan_forecast_coef``. Does NOT touch PG.
+        Scaled by ``action_forecast_coef``. Does NOT touch PG.
         """
         self.actor_module.train()
 
-        coef = data.meta_info.get('plan_forecast_coef',
-                                  float(self.config.get('plan_forecast_coef', 0.0)))
-        # metric namespace: 'plan_forecast' (default) or 'sft_ablation' when the
+        coef = data.meta_info.get('action_forecast_coef',
+                                  float(self.config.get('action_forecast_coef', 0.0)))
+        # metric namespace: 'action_forecast' (default) or 'sft_ablation' when the
         # RFT-style control reuses this same optimizer path (mutually exclusive).
-        mp = data.meta_info.get('sft_metric_prefix', 'plan_forecast')
+        mp = data.meta_info.get('sft_metric_prefix', 'action_forecast')
         select_keys = ['input_ids', 'attention_mask', 'position_ids', 'loss_mask']
         if 'loss_weight' in data.batch.keys():   # per-sample group-norm weight
             select_keys.append('loss_weight')
@@ -589,23 +589,23 @@ class DataParallelPPOActor(BasePPOActor):
                         position_ids=micro['position_ids'],
                         use_cache=False,
                     )
-                    pf_loss = compute_sft_loss_from_logits(
+                    af_loss = compute_sft_loss_from_logits(
                         logits=output.logits,
                         labels=micro['input_ids'],
                         loss_mask=loss_mask,
                         sample_weight=lw,
                     )
 
-                loss = coef * pf_loss / gradient_accumulation
+                loss = coef * af_loss / gradient_accumulation
                 loss.backward()
 
                 append_to_dict(metrics, {
-                    f'{mp}/sft_loss': pf_loss.detach().item(),
+                    f'{mp}/sft_loss': af_loss.detach().item(),
                     f'{mp}/coef': coef,
                     f'{mp}/loss_weight_mean': (float(lw.float().mean().item()) if lw is not None else 1.0),
                     # Spread within this micro-batch. Always 0 at one sample per
                     # micro-batch; the batch-level spread is reported as
-                    # plan_forecast/batch_loss_weight_std by build_plan_forecast_batch.
+                    # action_forecast/batch_loss_weight_std by build_action_forecast_batch.
                     f'{mp}/loss_weight_std': (float(lw.float().std().item()) if (lw is not None and lw.numel() > 1) else 0.0),
                     f'{mp}/valid_tokens': loss_mask.sum().detach().item(),
                 })

@@ -1,11 +1,11 @@
-"""Temporal Ensembling (TE)：把 plan_forecast 的时间视角预测聚合成策略的参考分布 q_t。
+"""Temporal Ensembling (TE)：把 action_forecast 的时间视角预测聚合成策略的参考分布 q_t。
 
 论文对应：
     q_t^F(a)   = (1/K_t) Σ_{k=1..K_t} π^k(a | h_{t-k})            时间混合
     q_t(a)     = (1-η) π^0_θ̄(a | h_t) + η q_t^F(a; θ̄)            冻结参考
     L_policy   = L_GRPO + λ_TE · E_{h_t~d_θ̄} KL(π_θ^0(·|h_t) ‖ q_t)
 
-与 plan_forecast SFT 的关系：SFT 训练成员（af-loss），TE 把成员蒸馏回策略。
+与 action_forecast SFT 的关系：SFT 训练成员（af-loss），TE 把成员蒸馏回策略。
 两者**必须共用同一套 forecast block 构造**，所以 π^k 是 block 的链式条件概率
 p(a_t | h_s, a_s..a_{t-1})，而不是边缘 p(a_t | h_s)。这与论文"把 af-loss 按目标
 时刻重新分组"是一致的（af-loss 里出现的就是链式分解项）。
@@ -23,8 +23,8 @@ from typing import Dict, List, Optional, Tuple
 
 import torch
 
-from verl.agent_trainer.ppo.plan_forecast import (
-    build_plan_targets, _to_chat_list, DEFAULT_PLAN_PROMPT,
+from verl.agent_trainer.ppo.action_forecast import (
+    build_action_targets, _to_chat_list, DEFAULT_ACTION_FORECAST_PROMPT,
 )
 
 
@@ -36,7 +36,7 @@ def build_te_scoring_samples(messages, tokenizer, k: int = 3,
                              max_length: int = 4096) -> List[Dict]:
     """一条轨迹 → 每个动作轮一条打分样本（带 slot→轮号 与 slot→token span）。
 
-    编码路径与 plan_forecast 的 build_plan_forecast_samples **逐字一致**：
+    编码路径与 action_forecast 的 build_action_forecast_samples **逐字一致**：
         prefix = convo[:obs_s+1] + {'role':'user', 'content': PROMPT.format(k=realized)}
         target = {'role':'assistant', 'content': "\\n".join(items)}
     注意 target 是裸的换行连接。
@@ -51,7 +51,7 @@ def build_te_scoring_samples(messages, tokenizer, k: int = 3,
     """
     convo = _to_chat_list(messages)
     out: List[Dict] = []
-    for tgt in build_plan_targets(messages, k=k, skip_invalid=skip_invalid, env=env):
+    for tgt in build_action_targets(messages, k=k, skip_invalid=skip_invalid, env=env):
         items = tgt.get('actions') or []
         turns = tgt.get('action_turns') or []
         src = tgt.get('src_turn')
@@ -63,7 +63,7 @@ def build_te_scoring_samples(messages, tokenizer, k: int = 3,
 
         prefix = list(convo[:tgt['prefix_end'] + 1])
         prefix.append({'role': 'user',
-                       'content': DEFAULT_PLAN_PROMPT.format(k=len(items))})
+                       'content': DEFAULT_ACTION_FORECAST_PROMPT.format(k=len(items))})
         content = "\n".join(items)
         target_msgs = [{'role': 'assistant', 'content': content}]
         try:

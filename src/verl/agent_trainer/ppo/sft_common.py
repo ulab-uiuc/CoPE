@@ -9,7 +9,7 @@
 
 Two kinds of caller live here:
 
-* the *separate-pass* objectives (plan-forecast, the sft-ablation control), which
+* the *separate-pass* objectives (action-forecast, the sft-ablation control), which
   re-assemble their own SFT samples with ``tokenizer.apply_chat_template``, pad them
   with ``collate_sft_samples`` and take CE with ``compute_sft_loss_from_logits``;
 * the *same-forward* objectives (``traj_lm``), which reuse the PG forward's token
@@ -73,7 +73,7 @@ def collate_sft_samples(
         'position_ids': position_ids,
         'loss_mask': loss_mask,
     }
-    # optional per-sample loss weight (e.g. plan-forecast group-weight normalization)
+    # optional per-sample loss weight (e.g. action-forecast group-weight normalization)
     if any('loss_weight' in s for s in samples):
         out['loss_weight'] = torch.tensor(
             [float(s.get('loss_weight', 1.0)) for s in samples], dtype=torch.float32)
@@ -97,7 +97,7 @@ def compute_sft_loss_from_logits(
 
     Weighting the denominator too (a weighted mean) looks equivalent but is not:
     with a single sample per micro-batch -- ppo_micro_batch_size_per_gpu=1, the
-    setting every plan-forecast run uses -- w appears in both numerator and
+    setting every action-forecast run uses -- w appears in both numerator and
     denominator and cancels, so the weights have no effect at all (measured:
     gradient cosine vs. unweighted = 1.000000). Scaling an already-averaged loss by
     ``sample_weight.mean()`` has the opposite failure: correct at one sample per

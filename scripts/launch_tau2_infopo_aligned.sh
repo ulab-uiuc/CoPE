@@ -8,7 +8,7 @@
 # different experiment and belongs in a separate script.
 #
 #   bash scripts/launch_tau2_infopo_aligned.sh                 # paper config, sbatch
-#   PLAN_FORECAST_ENABLE=True bash scripts/launch_tau2_infopo_aligned.sh
+#   ACTION_FORECAST_ENABLE=True bash scripts/launch_tau2_infopo_aligned.sh
 #   DRY_RUN=1 bash scripts/launch_tau2_infopo_aligned.sh       # print, don't submit
 #
 # Deliberate, documented deviations from the paper:
@@ -60,8 +60,8 @@ MAX_TOKENS_PER_TURN="${MAX_TOKENS_PER_TURN:-1024}"
 # from the first few steps of jobs that then OOMed, so treat them as indicative.
 #
 #   FIT=paper  16384 -- the published value; expect OOM on 40GB, fine on 80GB
-#   FIT=40gb    8192 -- validated to train on 40GB without plan-forecast
-#   FIT=40gb-pf 5120 -- plan-forecast adds a second full backward pass; needs this
+#   FIT=40gb    8192 -- validated to train on 40GB without action-forecast
+#   FIT=40gb-pf 5120 -- action-forecast adds a second full backward pass; needs this
 FIT="${FIT:-40gb}"
 case "${FIT}" in
   paper)    _resp=16384; _util=0.50 ;;
@@ -133,10 +133,10 @@ EXPORTS="${EXPORTS},ENVS_PER_GPU=${ENVS_PER_GPU},SAVE_FREQ=${SAVE_FREQ}"
 EXPORTS="${EXPORTS},MODEL_PATH=${MODEL_PATH},EXP_NAME=${EXP_NAME},RESUME_MODE=disable"
 EXPORTS="${EXPORTS},TRAIN_FILE=${TRAIN_FILE}"
 
-# Anything else already set in this shell (plan-forecast, info-grpo, ...) rides along, so
+# Anything else already set in this shell (action-forecast, info-grpo, ...) rides along, so
 # an ablation is one extra variable rather than a forked copy of this script.
-for v in PLAN_FORECAST_ENABLE PLAN_FORECAST_COEF PLAN_FORECAST_K \
-         PLAN_FORECAST_GATE PLAN_FORECAST_MAX_LENGTH PLAN_FORECAST_SEQ \
+for v in ACTION_FORECAST_ENABLE ACTION_FORECAST_COEF ACTION_FORECAST_K \
+         ACTION_FORECAST_GATE ACTION_FORECAST_MAX_LENGTH ACTION_FORECAST_SEQ \
          GRPO_FILTER_DEGENERATE INFO_INTRINSIC_WEIGHT INFO_GATE_TEMP INFO_KL_BATCH \
          INFO_MAX_TURNS; do
   if [ -n "${!v:-}" ]; then EXPORTS="${EXPORTS},${v}=${!v}"; fi

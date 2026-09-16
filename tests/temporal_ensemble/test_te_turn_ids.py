@@ -70,7 +70,7 @@ def test_te_turn_ids():
     # (2) 每个轮号的 token 解码 == 该轮动作正文
     seen = sorted({t for t in h.turn_ids if t >= 0})
     assert seen == list(range(len(TURNS))), f"轮号集合错: {seen}"
-    from verl.agent_trainer.ppo.plan_forecast import extract_action
+    from verl.agent_trainer.ppo.action_forecast import extract_action
     for t, (act, _) in enumerate(TURNS):
         idx = [j for j, v in enumerate(h.turn_ids) if v == t]
         assert idx == list(range(idx[0], idx[-1]+1)), f"轮 {t} 的 token 不连续: {idx}"

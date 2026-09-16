@@ -2,7 +2,7 @@
 #
 # GRPO training on tau2-bench.
 #
-# Plain GRPO by default. The plan/action-forecast knobs below are wired through but
+# Plain GRPO by default. The action-forecast knobs below are wired through but
 # every one is off unless set, so an unmodified run is the baseline. Everything else is
 # left at its ppo_trainer.yaml default.
 
@@ -58,18 +58,18 @@ ENTROPY_COEF="${ENTROPY_COEF:-0.001}"
 # InfoPO trains tau2 with the KL penalty off entirely (use_kl_loss=False, coef 0).
 USE_KL_LOSS="${USE_KL_LOSS:-True}"
 
-# Plan/action forecasting (the wmc-erc line's auxiliary objective). Ported verbatim
+# Action forecasting (the wmc-erc line's auxiliary objective). Ported verbatim
 # from the alfworld script so the defaults match; every one is off unless set, so an
 # unmodified run is still plain GRPO.
-PLAN_FORECAST_ENABLE="${PLAN_FORECAST_ENABLE:-False}"
-PLAN_FORECAST_COEF="${PLAN_FORECAST_COEF:-0}"
-PLAN_FORECAST_K="${PLAN_FORECAST_K:-3}"
-PLAN_FORECAST_SKIP_INVALID="${PLAN_FORECAST_SKIP_INVALID:-True}"
-PLAN_FORECAST_GATE="${PLAN_FORECAST_GATE:-wins}"
-PLAN_FORECAST_GROUP_NORM="${PLAN_FORECAST_GROUP_NORM:-True}"
-PLAN_FORECAST_SUCCESS_THRESHOLD="${PLAN_FORECAST_SUCCESS_THRESHOLD:-0.5}"
-PLAN_FORECAST_MAX_LENGTH="${PLAN_FORECAST_MAX_LENGTH:-4096}"
-PLAN_FORECAST_SEQ="${PLAN_FORECAST_SEQ:-separate}"
+ACTION_FORECAST_ENABLE="${ACTION_FORECAST_ENABLE:-False}"
+ACTION_FORECAST_COEF="${ACTION_FORECAST_COEF:-0}"
+ACTION_FORECAST_K="${ACTION_FORECAST_K:-3}"
+ACTION_FORECAST_SKIP_INVALID="${ACTION_FORECAST_SKIP_INVALID:-True}"
+ACTION_FORECAST_GATE="${ACTION_FORECAST_GATE:-wins}"
+ACTION_FORECAST_GROUP_NORM="${ACTION_FORECAST_GROUP_NORM:-True}"
+ACTION_FORECAST_SUCCESS_THRESHOLD="${ACTION_FORECAST_SUCCESS_THRESHOLD:-0.5}"
+ACTION_FORECAST_MAX_LENGTH="${ACTION_FORECAST_MAX_LENGTH:-4096}"
+ACTION_FORECAST_SEQ="${ACTION_FORECAST_SEQ:-separate}"
 POLICY_LR="${POLICY_LR:-1e-6}"
 ROLLOUT_N="${ROLLOUT_N:-8}"
 TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-16}"
@@ -162,15 +162,15 @@ exec env \
     actor_rollout_ref.actor.kl_loss_coef="${KL_COEF}" \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.actor.entropy_coeff="${ENTROPY_COEF}" \
-    +actor_rollout_ref.actor.plan_forecast_enable="${PLAN_FORECAST_ENABLE}" \
-    +actor_rollout_ref.actor.plan_forecast_coef="${PLAN_FORECAST_COEF}" \
-    +actor_rollout_ref.actor.plan_forecast_k="${PLAN_FORECAST_K}" \
-    +actor_rollout_ref.actor.plan_forecast_skip_invalid="${PLAN_FORECAST_SKIP_INVALID}" \
-    +actor_rollout_ref.actor.plan_forecast_gate="${PLAN_FORECAST_GATE}" \
-    +actor_rollout_ref.actor.plan_forecast_group_norm="${PLAN_FORECAST_GROUP_NORM}" \
-    +actor_rollout_ref.actor.plan_forecast_success_threshold="${PLAN_FORECAST_SUCCESS_THRESHOLD}" \
-    +actor_rollout_ref.actor.plan_forecast_max_length="${PLAN_FORECAST_MAX_LENGTH}" \
-    +actor_rollout_ref.actor.plan_forecast_seq="${PLAN_FORECAST_SEQ}" \
+    +actor_rollout_ref.actor.action_forecast_enable="${ACTION_FORECAST_ENABLE}" \
+    +actor_rollout_ref.actor.action_forecast_coef="${ACTION_FORECAST_COEF}" \
+    +actor_rollout_ref.actor.action_forecast_k="${ACTION_FORECAST_K}" \
+    +actor_rollout_ref.actor.action_forecast_skip_invalid="${ACTION_FORECAST_SKIP_INVALID}" \
+    +actor_rollout_ref.actor.action_forecast_gate="${ACTION_FORECAST_GATE}" \
+    +actor_rollout_ref.actor.action_forecast_group_norm="${ACTION_FORECAST_GROUP_NORM}" \
+    +actor_rollout_ref.actor.action_forecast_success_threshold="${ACTION_FORECAST_SUCCESS_THRESHOLD}" \
+    +actor_rollout_ref.actor.action_forecast_max_length="${ACTION_FORECAST_MAX_LENGTH}" \
+    +actor_rollout_ref.actor.action_forecast_seq="${ACTION_FORECAST_SEQ}" \
     actor_rollout_ref.actor.ppo_epochs="${PPO_EPOCHS}" \
     actor_rollout_ref.actor.optim.lr="${POLICY_LR}" \
     actor_rollout_ref.actor.ppo_mini_batch_size="${PPO_MINI_BATCH_SIZE}" \
