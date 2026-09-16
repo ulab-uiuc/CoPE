@@ -64,51 +64,20 @@ SAVE_FREQ="${SAVE_FREQ:-25}"
 PLAN_FORECAST_ENABLE="${PLAN_FORECAST_ENABLE:-True}"
 PLAN_FORECAST_COEF="${PLAN_FORECAST_COEF:-0.01}"
 PLAN_FORECAST_K="${PLAN_FORECAST_K:-3}"
-# Horizon-growth schedule (curriculum): grow the forecast target length over
-# training. Format "startStep:kMin:kMax,..." (start-step semantics, last stage
-# persists); each per-step sample draws k uniformly in the active [kMin,kMax] and
-# the prompt/plan-block align to the realized length. Empty = OFF (use PLAN_FORECAST_K).
-# First stage MUST start at 0. Example: "0:2:3,40:2:4,80:3:5".
-PLAN_FORECAST_K_SCHEDULE="${PLAN_FORECAST_K_SCHEDULE:-}"
 # skip_invalid: build the forecast target from only EFFECTIVE actions — drop actions
 # whose env result was invalid / no-effect ("Nothing happens." / "Invalid Action." /
 # "No known action..."; per-env, auto-selected by task_name). Default off.
 PLAN_FORECAST_SKIP_INVALID="${PLAN_FORECAST_SKIP_INVALID:-True}"
 # gate=wins: forecast-SFT only on winning trajectories (block2-success, proven).
 PLAN_FORECAST_GATE="${PLAN_FORECAST_GATE:-wins}"
-# --- Two ORTHOGONAL group knobs (compose; both distill successes only) ---
-# Group-success GATING (curriculum): filter WHICH groups' successes to distill by the
-# group's success-rate. off (use PLAN_FORECAST_GATE) | low (rate<=LOW) | low_high
-# (rate<=LOW OR >=HIGH, skip mid-rate groups where GRPO signal is strong). Default off.
-PLAN_FORECAST_GROUP_GATE="${PLAN_FORECAST_GROUP_GATE:-off}"
-PLAN_FORECAST_GROUP_LOW_THRESH="${PLAN_FORECAST_GROUP_LOW_THRESH:-0.5}"
-PLAN_FORECAST_GROUP_HIGH_THRESH="${PLAN_FORECAST_GROUP_HIGH_THRESH:-1.0}"
 # Group-weight NORMALIZATION (stability): give every kept GRPO group the SAME total
 # plan-CE weight = the single PLAN_FORECAST_COEF, split EVENLY among its distilled
 # successful trajectories. As success-rate rises mid/late training, per-traj weight
 # shrinks and each group's contribution stays constant -> no SFT blow-up from more
-# successful samples. Applies to whatever gating keeps.
+# successful samples.
 PLAN_FORECAST_GROUP_NORM="${PLAN_FORECAST_GROUP_NORM:-True}"
-# group_dedup (default True): when group_norm on, split each group's weight over its
-# DISTINCT successful action-sequences instead of per-trajectory -> duplicate rollouts
-# don't inflate weight (within-group action repetition is heavy mid/late training).
-PLAN_FORECAST_GROUP_DEDUP="${PLAN_FORECAST_GROUP_DEDUP:-False}"
 PLAN_FORECAST_SUCCESS_THRESHOLD="${PLAN_FORECAST_SUCCESS_THRESHOLD:-0.5}"
 PLAN_FORECAST_MAX_LENGTH="${PLAN_FORECAST_MAX_LENGTH:-4096}"
-# plan_forecast target: action (predict realized next-K actions; block2-success,
-# grounded) | subgoal (predict next-K hindsight-confirmed achieved sub-goals).
-PLAN_FORECAST_TARGET="${PLAN_FORECAST_TARGET:-action}"
-# plan_forecast seq: separate (block2 — synthetic prompt + bare list, standalone;
-# use with inline OFF) | inline_consistent (SFT sample matches a real rollout turn
-# obs->Plan+Action; use with inline ON). inline_consistent auto-falls-back to
-# separate when inline is off.
-PLAN_FORECAST_SEQ="${PLAN_FORECAST_SEQ:-separate}"
-# plan_forecast_coef anneal: fixed | linear | power | cutoff (start = PLAN_FORECAST_COEF).
-PLAN_FORECAST_COEF_ANNEAL="${PLAN_FORECAST_COEF_ANNEAL:-fixed}"
-PLAN_FORECAST_COEF_END="${PLAN_FORECAST_COEF_END:-0.0}"
-PLAN_FORECAST_COEF_HORIZON="${PLAN_FORECAST_COEF_HORIZON:-40}"
-PLAN_FORECAST_COEF_POWER="${PLAN_FORECAST_COEF_POWER:-2.0}"
-PLAN_FORECAST_COEF_CUTOFF_STEP="${PLAN_FORECAST_COEF_CUTOFF_STEP:-0}"
 # SFT-ablation (RFT) control — MUTUALLY EXCLUSIVE with plan_forecast (asserted at
 # init). When ON: one extra SFT round behavior-cloning THIS step's winning trajs'
 # real assistant turns (vs plan_forecast's constructed forecast target). Same
@@ -116,33 +85,6 @@ PLAN_FORECAST_COEF_CUTOFF_STEP="${PLAN_FORECAST_COEF_CUTOFF_STEP:-0}"
 SFT_ABLATION_ENABLE="${SFT_ABLATION_ENABLE:-False}"
 SFT_ABLATION_COEF="${SFT_ABLATION_COEF:-0.01}"      # match PLAN_FORECAST_COEF for a fair control
 SFT_ABLATION_GATE="${SFT_ABLATION_GATE:-wins}"      # wins (success trajs only) | all
-# Plan FORMAT reward (DEFAULT OFF): per-turn shaping bonus on advantage for a
-# well-formed Thought->Plan->Action turn (counters inline-plan decay under RL).
-# bonus_t = COEF*(score-BASELINE) on the turn's tokens; baseline 0.5 = symmetric.
-PLAN_FORMAT_REWARD_ENABLE="${PLAN_FORMAT_REWARD_ENABLE:-False}"
-PLAN_FORMAT_REWARD_COEF="${PLAN_FORMAT_REWARD_COEF:-0.05}"
-PLAN_FORMAT_REWARD_BASELINE="${PLAN_FORMAT_REWARD_BASELINE:-0.5}"
-PLAN_FORMAT_REWARD_CLIP="${PLAN_FORMAT_REWARD_CLIP:-0.0}"
-# penalty_only: only penalize turns that DROP the plan (never reward keeping it).
-PLAN_FORMAT_REWARD_PENALTY_ONLY="${PLAN_FORMAT_REWARD_PENALTY_ONLY:-True}"
-# warmup: keep format reward OFF until global_step >= this (learn task first).
-PLAN_FORMAT_REWARD_WARMUP_STEPS="${PLAN_FORMAT_REWARD_WARMUP_STEPS:-10}"
-# Block 1 (inline plan, DEFAULT OFF): append a standing instruction so the model
-# writes its next-K-action plan inside the THOUGHT each turn (auto-eats PG, the
-# env still parses Action:). Pairs with block 2 (plan_forecast) — same K/framing.
-PLAN_INLINE_ENABLE="${PLAN_INLINE_ENABLE:-False}"
-PLAN_INLINE_K="${PLAN_INLINE_K:-${PLAN_FORECAST_K}}"
-# inline plan style: actions (next-K actions) | todo (checkable sub-goal TODO
-# list with (done) marks; pair with PLAN_FORECAST_TARGET=subgoal).
-PLAN_INLINE_STYLE="${PLAN_INLINE_STYLE:-actions}"
-# per-turn reminder: re-state the Plan request after EVERY obs (one-time decays).
-PLAN_INLINE_PER_TURN="${PLAN_INLINE_PER_TURN:-False}"   # ARCHIVED: per-turn reminder off; opening prompt only
-# inline warmup: use ORIGINAL prompt until global_step >= this, then introduce
-# the plan prompt (cold-start: let task competence build before planning).
-PLAN_INLINE_WARMUP_STEPS="${PLAN_INLINE_WARMUP_STEPS:-0}"
-# think reminder (alternative to inline plan, mutually exclusive): per-turn nudge
-# to reason in a Thought before the Action, WITHOUT forcing a Plan.
-THINK_REMINDER_ENABLE="${THINK_REMINDER_ENABLE:-False}"
 # traj_lm: full-sequence next-token CE over the WHOLE trajectory (env obs AND the
 # agent's own tokens), coef>0 = on. Default 0 = off.
 TRAJ_LM_COEF="${TRAJ_LM_COEF:-0}"
@@ -195,12 +137,6 @@ exec env \
     data.train_batch_size="${TRAIN_BATCH_SIZE}" \
     data.max_prompt_length="${MAX_PROMPT_LENGTH}" \
     data.max_response_length="${MAX_RESPONSE_LENGTH}" \
-    +data.plan_inline_enable="${PLAN_INLINE_ENABLE}" \
-    +data.plan_inline_k="${PLAN_INLINE_K}" \
-    +data.plan_inline_style="${PLAN_INLINE_STYLE}" \
-    +data.plan_inline_per_turn="${PLAN_INLINE_PER_TURN}" \
-    +data.plan_inline_warmup_steps="${PLAN_INLINE_WARMUP_STEPS}" \
-    +data.think_reminder_enable="${THINK_REMINDER_ENABLE}" \
     actor_rollout_ref.agentgym.task_name="${TASK_NAME}" \
     actor_rollout_ref.agentgym.env_addr="'${ENV_ADDR}'" \
     actor_rollout_ref.agentgym.timeout=2400 \
@@ -237,31 +173,13 @@ exec env \
     +actor_rollout_ref.actor.plan_forecast_enable="${PLAN_FORECAST_ENABLE}" \
     +actor_rollout_ref.actor.plan_forecast_coef="${PLAN_FORECAST_COEF}" \
     +actor_rollout_ref.actor.plan_forecast_k="${PLAN_FORECAST_K}" \
-    +actor_rollout_ref.actor.plan_forecast_k_schedule="'${PLAN_FORECAST_K_SCHEDULE}'" \
     +actor_rollout_ref.actor.plan_forecast_skip_invalid="${PLAN_FORECAST_SKIP_INVALID}" \
     +actor_rollout_ref.actor.plan_forecast_gate="${PLAN_FORECAST_GATE}" \
-    +actor_rollout_ref.actor.plan_forecast_group_gate="${PLAN_FORECAST_GROUP_GATE}" \
-    +actor_rollout_ref.actor.plan_forecast_group_low_thresh="${PLAN_FORECAST_GROUP_LOW_THRESH}" \
-    +actor_rollout_ref.actor.plan_forecast_group_high_thresh="${PLAN_FORECAST_GROUP_HIGH_THRESH}" \
     +actor_rollout_ref.actor.plan_forecast_group_norm="${PLAN_FORECAST_GROUP_NORM}" \
-    +actor_rollout_ref.actor.plan_forecast_group_dedup="${PLAN_FORECAST_GROUP_DEDUP}" \
     +actor_rollout_ref.actor.plan_forecast_success_threshold="${PLAN_FORECAST_SUCCESS_THRESHOLD}" \
     +actor_rollout_ref.actor.plan_forecast_max_length="${PLAN_FORECAST_MAX_LENGTH}" \
-    +actor_rollout_ref.actor.plan_forecast_target="${PLAN_FORECAST_TARGET}" \
-    +actor_rollout_ref.actor.plan_forecast_seq="${PLAN_FORECAST_SEQ}" \
-    +actor_rollout_ref.actor.plan_forecast_coef_anneal="${PLAN_FORECAST_COEF_ANNEAL}" \
-    +actor_rollout_ref.actor.plan_forecast_coef_end="${PLAN_FORECAST_COEF_END}" \
-    +actor_rollout_ref.actor.plan_forecast_coef_horizon="${PLAN_FORECAST_COEF_HORIZON}" \
-    +actor_rollout_ref.actor.plan_forecast_coef_power="${PLAN_FORECAST_COEF_POWER}" \
-    +actor_rollout_ref.actor.plan_forecast_coef_cutoff_step="${PLAN_FORECAST_COEF_CUTOFF_STEP}" \
     +actor_rollout_ref.actor.sft_ablation_enable="${SFT_ABLATION_ENABLE}" \
     +actor_rollout_ref.actor.sft_ablation_coef="${SFT_ABLATION_COEF}" \
     +actor_rollout_ref.actor.sft_ablation_gate="${SFT_ABLATION_GATE}" \
-    +actor_rollout_ref.actor.plan_format_reward_enable="${PLAN_FORMAT_REWARD_ENABLE}" \
-    +actor_rollout_ref.actor.plan_format_reward_coef="${PLAN_FORMAT_REWARD_COEF}" \
-    +actor_rollout_ref.actor.plan_format_reward_baseline="${PLAN_FORMAT_REWARD_BASELINE}" \
-    +actor_rollout_ref.actor.plan_format_reward_clip="${PLAN_FORMAT_REWARD_CLIP}" \
-    +actor_rollout_ref.actor.plan_format_reward_penalty_only="${PLAN_FORMAT_REWARD_PENALTY_ONLY}" \
-    +actor_rollout_ref.actor.plan_format_reward_warmup_steps="${PLAN_FORMAT_REWARD_WARMUP_STEPS}" \
     +actor_rollout_ref.actor.traj_lm_coef="${TRAJ_LM_COEF}" \
     +actor_rollout_ref.actor.traj_lm_gate="${TRAJ_LM_GATE}"

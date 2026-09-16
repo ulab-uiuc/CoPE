@@ -40,6 +40,9 @@ from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_fir
 
 __all__ = ['DataParallelPPOActor']
 
+# Fixed width (tokens per action slot) of the per-token Temporal Ensembling scores.
+TE_SLOT_MAX_TOK = 128
+
 
 class DataParallelPPOActor(BasePPOActor):
 
@@ -61,7 +64,8 @@ class DataParallelPPOActor(BasePPOActor):
 
         self.compute_entropy_from_logits = torch.compile(verl_F.entropy_from_logits, dynamic=True)
 
-    def _forward_micro_batch(self, micro_batch, temperature, return_hidden_states: bool = False):
+    def _forward_micro_batch(self, micro_batch, temperature, return_hidden_states: bool = False,
+                             te_cov_pos=None):
         """
         Returns:
             entropy: (bs, response_len)
@@ -106,6 +110,11 @@ class DataParallelPPOActor(BasePPOActor):
                                            position_ids=position_ids_rmpad,
                                            output_hidden_states=return_hidden_states,
                                            use_cache=False)  # prevent model thinks we are generating
+                if te_cov_pos is not None:
+                    # Logits are packed here, so response positions do not map to rows the
+                    # way they do on the dense path. Fail loudly rather than read wrong rows.
+                    raise NotImplementedError(
+                        'te_mix=fullvocab does not support use_remove_padding / ulysses sp yet')
                 logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
 
                 logits_rmpad.div_(temperature)
@@ -166,6 +175,20 @@ class DataParallelPPOActor(BasePPOActor):
                 logits = logits[:, -response_length - 1:-1, :]  # (bsz, response_length, vocab_size)
                 log_probs = logprobs_from_logits(logits, micro_batch['responses'])
                 entropy = verl_F.entropy_from_logits(logits)  # (bsz, response_length)
+
+                # Full-vocab TE-KL needs the complete logits rows at the covered positions.
+                # Keep only those rows ([P, V], P ~ 30) instead of carrying the whole
+                # [bsz, response_len, V] block, which is GBs at 4096 x 152k.
+                if te_cov_pos is not None:
+                    te_valid_cov = te_cov_pos >= 0
+                    if te_valid_cov.any():
+                        te_bi, te_ci = te_valid_cov.nonzero(as_tuple=True)
+                        te_pos = te_cov_pos[te_bi, te_ci].long().clamp(0, logits.shape[1] - 1)
+                        self._te_logits_rows = logits[te_bi, te_pos]
+                        self._te_logits_bi = te_bi
+                        self._te_logits_ci = te_ci
+                    else:
+                        self._te_logits_rows = None
 
                 if return_hidden_states:
                     full_hidden = output.hidden_states[-1]  # (bsz, seqlen, hidden)
@@ -256,10 +279,26 @@ class DataParallelPPOActor(BasePPOActor):
         self.actor_module.train()
 
         temperature = data.meta_info['temperature']  # temperature must be in the data.meta_info to avoid slient error
+        # Temporal Ensembling settings must be read HERE. Below, `data.select(...).batch`
+        # drops meta_info and the loop rebinds `data` to that bare TensorDict, so reading
+        # meta_info inside the loop silently yields 0 and the TE term never reaches the
+        # loss (a lambda=0 dry-run cannot reveal this).
+        te_lambda = float(data.meta_info.get('te_lambda', 0.0))
+        te_gbar = float(data.meta_info.get('te_gbar', 0.0))
+        te_center = bool(self.config.get('te_center', True))
+        te_mix = str(self.config.get('te_mix', 'token')).lower()
 
         select_keys = ['input_ids', 'attention_mask', 'position_ids', 'old_log_probs', 'advantages', 'responses', 'response_mask']
         if self.config.use_kl_loss:
             select_keys.append('ref_log_prob')
+        # TE tensors are dropped by the select unless listed. fullvocab computes its KL
+        # even at lambda=0 (reported, not applied) so a dry-run exercises the same path.
+        # With TE off none of these keys exist and select_keys is unchanged.
+        if te_lambda > 0.0 or te_mix == 'fullvocab':
+            for _k in ('te_log_q', 'te_valid', 'turn_ids',
+                       'te_cov_pos', 'te_cov_ids', 'te_cov_prs'):
+                if _k in data.batch.keys():
+                    select_keys.append(_k)
         # traj_lm needs the env-observation tokens, so keep observation_mask when the
         # rollout carried one.
         if 'observation_mask' in data.batch.keys():
@@ -294,7 +333,11 @@ class DataParallelPPOActor(BasePPOActor):
                 entropy_coeff = self.config.entropy_coeff
 
                 # all return: (bsz, response_length)
-                entropy, log_prob = self._forward_micro_batch(micro_batch=data, temperature=temperature)
+                _cov = data['te_cov_pos'] if (te_mix == 'fullvocab'
+                                              and 'te_cov_pos' in data.keys()) else None
+                self._te_logits_rows = None
+                entropy, log_prob = self._forward_micro_batch(
+                    micro_batch=data, temperature=temperature, te_cov_pos=_cov)
 
                 pg_loss, pg_clipfrac, ppo_kl = core_algos.compute_policy_loss(old_log_prob=old_log_prob,
                                                                              log_prob=log_prob,
@@ -318,6 +361,65 @@ class DataParallelPPOActor(BasePPOActor):
                     policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
                     metrics['actor/kl_loss'] = kl_loss.detach().item()
                     metrics['actor/kl_coef'] = self.config.kl_loss_coef
+
+                # ---- Temporal Ensembling: lambda_TE * KL(pi_theta || q) ----
+                # Metrics go through append_to_dict so they are averaged across
+                # micro-batches; a plain metrics[...] = keeps only the last one.
+                _te_metrics = {}
+                _fv_rows = getattr(self, '_te_logits_rows', None)
+                if te_mix == 'fullvocab' and _fv_rows is not None:
+                    # Full-vocabulary per-token KL: the only form with a fixed point that
+                    # cannot be evaded. The log-ratio at realized tokens has no
+                    # normalization (policy moved mass to non-action text: response
+                    # length 931 -> 3264); removing its common mode left an unbounded
+                    # linear term (entropy 0.37 -> 6.72).
+                    from verl.agent_trainer.ppo.temporal_ensemble import fullvocab_te_kl_rows
+                    _bi, _ci = self._te_logits_bi, self._te_logits_ci
+                    _kl_te, _npos = fullvocab_te_kl_rows(
+                        _fv_rows, data['te_cov_ids'][_bi, _ci], data['te_cov_prs'][_bi, _ci],
+                        float(self.config.get('te_eta', 0.5)))
+                    if te_lambda > 0.0:   # lambda=0: report only, same code path
+                        policy_loss = policy_loss + te_lambda * _kl_te
+                    _te_metrics = {
+                        'te/kl': _kl_te.detach().item(),
+                        'te/lambda': te_lambda,
+                        'te/fv_positions_mb': float(_npos),
+                    }
+                    self._te_logits_rows = None
+                elif te_lambda > 0.0 and 'te_log_q' in data.keys() and 'turn_ids' in data.keys():
+                    # Legacy te_mix=token/seq. Both were shown to degenerate; kept only to
+                    # reproduce those runs.
+                    _tid = data['turn_ids']
+                    _logq = data['te_log_q']
+                    _valid = data['te_valid'].to(_logq.dtype)
+                    if _logq.shape == log_prob.shape:
+                        _logp_ref = log_prob
+                    else:
+                        from verl.agent_trainer.ppo.temporal_ensemble import segment_sum_by_turn
+                        _logp_ref = segment_sum_by_turn(log_prob, _tid, _logq.shape[1])
+                    _den = _valid.sum().clamp(min=1.0)
+                    _kld_te = core_algos.kl_penalty(
+                        logprob=_logp_ref, ref_logprob=_logq,
+                        kl_penalty=self.config.get('te_kl_type', 'low_var_kl'))
+                    _kl_raw = ((_kld_te * _valid).sum() / _den).detach()
+                    if te_center:
+                        with torch.no_grad():
+                            _g = 1.0 - torch.exp(_logq - _logp_ref.detach())
+                            _w = (_g - te_gbar) * _valid
+                        _kl_te = (_w * _logp_ref).sum() / _den
+                        _w_absmean = float(_w.abs().sum() / _den)
+                    else:
+                        _kl_te = (_kld_te * _valid).sum() / _den
+                        _w_absmean = float('nan')
+                    policy_loss = policy_loss + te_lambda * _kl_te
+                    _te_metrics = {
+                        'te/kl': _kl_raw.item(),
+                        'te/loss_term': _kl_te.detach().item(),
+                        'te/w_absmean': _w_absmean,
+                        'te/gbar': te_gbar,
+                        'te/lambda': te_lambda,
+                        'te/turns_used': float(_valid.sum()),
+                    }
 
                 # Full-trajectory LM SFT: next-token CE over the WHOLE response region
                 # (obs tokens AND the agent's own tokens), no masking. Default off.
@@ -353,6 +455,7 @@ class DataParallelPPOActor(BasePPOActor):
                     'actor/pg_clipfrac': pg_clipfrac.detach().item(),
                     'actor/ppo_kl': ppo_kl.detach().item(),
                 }
+                data.update(_te_metrics)   # empty dict when TE is off
                 append_to_dict(metrics, data)
 
             grad_norm = self._optimizer_step()
@@ -360,6 +463,79 @@ class DataParallelPPOActor(BasePPOActor):
             append_to_dict(metrics, data)
         self.actor_optimizer.zero_grad()
         return metrics
+
+    def compute_te_log_prob(self, data: DataProto):
+        """Temporal Ensembling: score every forecast slot under the frozen policy.
+
+        Inference only (no graph, no backward). The batch carries input_ids /
+        attention_mask / position_ids; non_tensor_batch['slot_spans'] holds each
+        sample's [(start, end), ...] already shifted for left padding. Called by the
+        trainer only when te_enable is set.
+
+        Returns four tensors, all indexed by sample:
+          [B, K]                            sequence log-prob per slot
+          [B, K, TE_SLOT_MAX_TOK]           per-token log-probs (NaN padded)
+          [B, K_slot, TOPM_MAXTOK, TOPM]    top-M token ids per action token (-1 padded)
+          [B, K_slot, TOPM_MAXTOK, TOPM]    their probabilities (0 padded)
+        Everything goes back as tensors in the batch: this runs under
+        Dispatch.DP_COMPUTE_PROTO, which concatenates batch tensors across workers but
+        keeps meta_info from the first shard only (returning Python lists in meta_info
+        silently lost 3/4 of the scores on 4 GPUs). Widths are fixed for the same
+        reason -- per-worker maxima differ and would not concatenate.
+        """
+        from verl.agent_trainer.ppo.temporal_ensemble import (
+            slot_logprobs_from_logits, slot_token_logprobs_from_logits,
+            slot_topk_from_logits, pad_slot_dim, TE_TOPM, TE_TOPM_MAXTOK)
+        self.actor_module.eval()
+        mbs = int(self.config.get('te_micro_batch_size_per_gpu', 1))
+        ids = data.batch['input_ids']
+        attn = data.batch['attention_mask']
+        pos = data.batch['position_ids']
+        spans_all = data.non_tensor_batch['slot_spans']
+        out, out_tok = [], []
+        _fv = str(self.config.get('te_mix', 'token')).lower() == 'fullvocab'
+        topm_ids, topm_prs = [], []
+        for b0 in range(0, ids.size(0), mbs):
+            b1 = min(b0 + mbs, ids.size(0))
+            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                logits = self.actor_module(input_ids=ids[b0:b1],
+                                           attention_mask=attn[b0:b1],
+                                           position_ids=pos[b0:b1],
+                                           use_cache=False).logits
+            spans = list(spans_all[b0:b1])
+            out += slot_logprobs_from_logits(logits, ids[b0:b1], spans)
+            out_tok += slot_token_logprobs_from_logits(logits, ids[b0:b1], spans)
+            if _fv:
+                _i, _p = slot_topk_from_logits(logits, ids[b0:b1], spans)
+                topm_ids.append(_i)
+                topm_prs.append(_p)
+            del logits
+        torch.cuda.empty_cache()
+
+        K = int(self.config.get('plan_forecast_k', 3))   # at most K slots per sample
+        t = torch.full((len(out), max(K, 1)), float('nan'), dtype=torch.float32)
+        for i, r in enumerate(out):
+            r = r[:K]
+            if r:
+                t[i, :len(r)] = torch.tensor(r, dtype=torch.float32)
+        # Slots longer than TE_SLOT_MAX_TOK are truncated; the length check on the
+        # assemble side then drops them rather than misaligning (actions average 3.3
+        # tokens, so the bound is loose).
+        TMAX = TE_SLOT_MAX_TOK
+        tt = torch.full((len(out_tok), max(K, 1), TMAX), float('nan'), dtype=torch.float32)
+        for i, r in enumerate(out_tok):
+            for j, toks in enumerate(r[:K]):
+                if toks:
+                    m = min(len(toks), TMAX)
+                    tt[i, j, :m] = torch.tensor(toks[:m], dtype=torch.float32)
+        if _fv and topm_ids:
+            K_slot = max(x.shape[1] for x in topm_ids)
+            ti_ = torch.cat([pad_slot_dim(x, K_slot) for x in topm_ids], 0)
+            tp_ = torch.cat([pad_slot_dim(x, K_slot) for x in topm_prs], 0)
+        else:
+            ti_ = torch.full((len(out), 1, TE_TOPM_MAXTOK, TE_TOPM), -1, dtype=torch.int32)
+            tp_ = torch.zeros((len(out), 1, TE_TOPM_MAXTOK, TE_TOPM), dtype=torch.float32)
+        return t, tt, ti_, tp_
 
     def update_plan_forecast(self, data: DataProto):
         """SFT update on a plan-forecast batch (predict the realized next-K actions).
@@ -400,6 +576,12 @@ class DataParallelPPOActor(BasePPOActor):
                 if loss_mask.sum().item() == 0:
                     continue
 
+                # Per-sample group-norm weight (mean 1; identity when absent). It goes
+                # into the token-level aggregation of the loss rather than scaling the
+                # aggregated scalar -- see compute_sft_loss_from_logits for why the
+                # latter only works at one sample per micro-batch.
+                lw = micro['loss_weight'] if 'loss_weight' in micro.keys() else None
+
                 with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                     output = self.actor_module(
                         input_ids=micro['input_ids'],
@@ -411,18 +593,20 @@ class DataParallelPPOActor(BasePPOActor):
                         logits=output.logits,
                         labels=micro['input_ids'],
                         loss_mask=loss_mask,
+                        sample_weight=lw,
                     )
 
-                # per-sample group-norm weight (mean 1; identity when absent)
-                lw = micro['loss_weight'] if 'loss_weight' in micro.keys() else None
-                w = lw.to(pf_loss.dtype).mean() if lw is not None else 1.0
-                loss = coef * w * pf_loss / gradient_accumulation
+                loss = coef * pf_loss / gradient_accumulation
                 loss.backward()
 
                 append_to_dict(metrics, {
                     f'{mp}/sft_loss': pf_loss.detach().item(),
                     f'{mp}/coef': coef,
-                    f'{mp}/loss_weight_mean': (float(w.item()) if lw is not None else 1.0),
+                    f'{mp}/loss_weight_mean': (float(lw.float().mean().item()) if lw is not None else 1.0),
+                    # Spread within this micro-batch. Always 0 at one sample per
+                    # micro-batch; the batch-level spread is reported as
+                    # plan_forecast/batch_loss_weight_std by build_plan_forecast_batch.
+                    f'{mp}/loss_weight_std': (float(lw.float().std().item()) if (lw is not None and lw.numel() > 1) else 0.0),
                     f'{mp}/valid_tokens': loss_mask.sum().detach().item(),
                 })
 

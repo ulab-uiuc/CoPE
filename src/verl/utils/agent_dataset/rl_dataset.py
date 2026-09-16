@@ -90,25 +90,6 @@ class RLHFDataset(Dataset):
         self.chat_template_func = data_config.get("chat_template_func", None)
         self.need_tools_kwargs = data_config.get("need_tools_kwargs", False)
         self.filter_prompts = data_config.get("filter_prompts", True)
-        # Block-1 inline plan: append a standing "plan the next K actions inside
-        # your THOUGHT" instruction to the task instruction. Default OFF.
-        self.plan_inline_enable = bool(data_config.get("plan_inline_enable", False))
-        self.plan_inline_k = int(data_config.get("plan_inline_k", 3))
-        # Inline-plan warmup: with warmup_steps > 0 the standing instruction is NOT
-        # baked into the prompt (it can't be step-gated in the dataset); inline is
-        # then driven solely by the step-gated per-turn reminder (rollout side), so
-        # the warmup window genuinely uses the ORIGINAL prompt.
-        self.plan_inline_warmup_steps = int(data_config.get("plan_inline_warmup_steps", 0))
-        # per-turn reminder ARCHIVED (default OFF): inline now relies on the opening
-        # standing instruction only. (warmup-inline needed the reminder; with it off
-        # we always bake the standing instruction so the opening prompt drives inline.)
-        self.plan_inline_per_turn = bool(data_config.get("plan_inline_per_turn", False))
-        # inline plan style: 'actions' (next-K actions) | 'todo' (checkable sub-goal
-        # TODO list with (done) marks; pairs with plan_forecast_target='subgoal').
-        self.plan_inline_style = str(data_config.get("plan_inline_style", "actions")).lower()
-        # current global step, updated by ray_trainer each iteration (num_workers=0 so
-        # this dataset object is shared). Drives step-gated inline warmup.
-        self.current_step = 0
         self.serialize_dataset = False
         self._read_files_and_tokenize()
         # get agentgym client
@@ -140,20 +121,6 @@ class RLHFDataset(Dataset):
         if hasattr(self.env_client, "conversation_start_for"):
             conv_start = self.env_client.conversation_start_for(example.get("task_type"))
         instruction = conv_start[0]["value"]
-        # Bake the standing instruction only when inline is on AND no warmup is set.
-        # With warmup_steps > 0 the per-turn reminder (step-gated) is the sole driver.
-        # When inline is on, REPLACE the env's instruction with the plan instruction
-        # (NOT append): the GPU probe showed appending decays after turn 1 (the env's
-        # THOUGHT/ACTION framing wins), while replacing sustains plan-compliance across
-        # turns. Step-gated warmup: before plan_inline_warmup_steps use the ORIGINAL env
-        # instruction (let the model get competent at the task first — avoids the plan
-        # cold-start tax of invalid actions), then switch to the plan instruction.
-        # Original env prompt is preserved verbatim when inline is OFF or during warmup.
-        if self.plan_inline_enable and self.current_step >= self.plan_inline_warmup_steps:
-            from verl.agent_trainer.ppo.plan_forecast import (
-                inline_plan_instruction, todo_plan_instruction)
-            instr_fn = todo_plan_instruction if self.plan_inline_style == 'todo' else inline_plan_instruction
-            instruction = instr_fn(self.plan_inline_k)
         ack = conv_start[1]["value"]
         messages = [{"role": "user", "content": instruction},
                      {"role": "assistant", "content": ack}]

@@ -34,14 +34,14 @@ pytest tests/test_additive.py
 
 Two baselines are configured alongside the method: `examples/train/AgentGym-RL/` and
 `examples/train/ScalingInter-RL/`. Method variants are driven by environment variables on
-the `scripts/run_*_grpo_train.sh` launchers — `PLAN_FORECAST_ENABLE`, `PLAN_INLINE_ENABLE`,
+the `scripts/run_*_grpo_train.sh` launchers — `PLAN_FORECAST_ENABLE`,
 `INFO_INTRINSIC_WEIGHT` — rather than by forked copies of the script.
 
 ## Layout
 
 ```
 src/verl/                 the training framework (fork of AgentGym-RL's verl)
-  agent_trainer/ppo/      plan_forecast, plan_format, sft_common, ray_trainer
+  agent_trainer/ppo/      plan_forecast, sft_common, ray_trainer
   trainer/ppo/            info_grpo, intrinsic_reward, turn_structure
   workers/                actor, rollout, FSDP workers
 src/envs/tau2/            the τ²-bench environment server and client

@@ -6,22 +6,24 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TRAIN_CODE_DIR="${ROOT}/src"
 CONDA_SH="${CONDA_SH:-/opt/conda/etc/profile.d/conda.sh}"
 TRAIN_ENV="${TRAIN_ENV:?set TRAIN_ENV to the agentgym-rl conda env}"
-MODEL_PATH="${MODEL_PATH:-Qwen/Qwen2.5-7B-Instruct}"
-TASK_NAME="sciworld"
+MODEL_PATH="${MODEL_PATH:-Qwen/Qwen2.5-14B-Instruct}"
+TASK_NAME="appworld"
 
 export HF_HUB_OFFLINE=1
 export WANDB_MODE=offline
 
 ENV_ADDR_HOST="${ENV_ADDR_HOST:-127.0.0.1}"
-BASE_PORT="${BASE_PORT:-36101}"
-CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
+BASE_PORT="${BASE_PORT:-36301}"
+CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3,4,5,6,7}"
 IFS=',' read -r -a GPU_ARRAY <<< "${CUDA_VISIBLE_DEVICES}"
 NUM_GPUS="${#GPU_ARRAY[@]}"
-# Env servers per GPU. Must match the launcher's ENVS_PER_GPU, or the addresses built
-# here will not match the servers that were started. SciWorld's env.step is synchronous
-# pure Python, so one server per GPU serializes all of that rank's trajectories; more
-# servers speed up rollout without changing results. 1 keeps the original layout.
-ENVS_PER_GPU="${ENVS_PER_GPU:-1}"
+# Env servers per GPU. Must match the launcher's ENVS_PER_GPU.
+# AppWorld needs one process per concurrent trajectory, not merely for speed: its
+# supervisor's "active task" is process-global state. When one episode calls
+# complete_task, every other episode in that process is immediately marked done and
+# evaluated against the polluted state. Concurrent trajectories are
+# TRAIN_BATCH_SIZE * ROLLOUT_N = 128, so on 8 GPUs that is 16 per GPU.
+ENVS_PER_GPU="${ENVS_PER_GPU:-16}"
 NUM_ENVS=$((NUM_GPUS * ENVS_PER_GPU))
 
 # Automatically construct comma-separated list of environment addresses
@@ -39,26 +41,35 @@ ENV_ADDR="${ENV_ADDR:-${ENV_ADDR_LIST}}"
 echo "Using ENV_ADDR: ${ENV_ADDR}"
 
 WANDB_MODE="${WANDB_MODE:-offline}"
-PROJECT_NAME="${PROJECT_NAME:-agentgym-sciworld}"
+PROJECT_NAME="${PROJECT_NAME:-agentgym-appworld}"
 
-KL_COEF="${KL_COEF:-0.001}"
+KL_COEF="${KL_COEF:-0.01}"
 ENTROPY_COEF="${ENTROPY_COEF:-0.001}"
 POLICY_LR="${POLICY_LR:-1e-6}"
 ROLLOUT_N="${ROLLOUT_N:-8}"
 TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-16}"
-PPO_MINI_BATCH_SIZE="${PPO_MINI_BATCH_SIZE:-8}"
+PPO_MINI_BATCH_SIZE="${PPO_MINI_BATCH_SIZE:-64}"
+# 14B with 20k-token responses: sequence packing, optimizer offload and the dynamic
+# micro-batching knobs are what make it fit.
+USE_DYNAMIC_BSZ="${USE_DYNAMIC_BSZ:-False}"
+PPO_MAX_TOKEN_LEN_PER_GPU="${PPO_MAX_TOKEN_LEN_PER_GPU:-24576}"
+ULYSSES_SP="${ULYSSES_SP:-1}"
+OPTIMIZER_OFFLOAD="${OPTIMIZER_OFFLOAD:-True}"
+# Note: TE_MIX=fullvocab does not support remove_padding yet and fails fast if both are on.
+USE_REMOVE_PADDING="${USE_REMOVE_PADDING:-True}"
+ROLLOUT_TEMPERATURE="${ROLLOUT_TEMPERATURE:-1.0}"
 PPO_MICRO_BATCH_SIZE_PER_GPU="${PPO_MICRO_BATCH_SIZE_PER_GPU:-1}"
 PPO_EPOCHS="${PPO_EPOCHS:-1}"
 TOTAL_EPOCHS="${TOTAL_EPOCHS:-2}"
 # Exact step budget; null trains for TOTAL_EPOCHS.
 TOTAL_TRAINING_STEPS="${TOTAL_TRAINING_STEPS:-null}"
-MAX_ROUNDS="${MAX_ROUNDS:-20}"
-MAX_PROMPT_LENGTH="${MAX_PROMPT_LENGTH:-2048}"
-MAX_RESPONSE_LENGTH="${MAX_RESPONSE_LENGTH:-4096}"
-MAX_MODEL_LEN="${MAX_MODEL_LEN:-8192}"
-MAX_TOKENS_PER_TURN="${MAX_TOKENS_PER_TURN:-512}"
-ROLLOUT_GPU_MEMORY_UTILIZATION="${ROLLOUT_GPU_MEMORY_UTILIZATION:-0.80}"
-SAVE_FREQ="${SAVE_FREQ:-50}"
+MAX_ROUNDS="${MAX_ROUNDS:-30}"
+MAX_PROMPT_LENGTH="${MAX_PROMPT_LENGTH:-4096}"
+MAX_RESPONSE_LENGTH="${MAX_RESPONSE_LENGTH:-20480}"
+MAX_MODEL_LEN="${MAX_MODEL_LEN:-34816}"
+MAX_TOKENS_PER_TURN="${MAX_TOKENS_PER_TURN:-1024}"
+ROLLOUT_GPU_MEMORY_UTILIZATION="${ROLLOUT_GPU_MEMORY_UTILIZATION:-0.40}"
+SAVE_FREQ="${SAVE_FREQ:-25}"
 
 
 # Plan-forecast auxiliary SFT (DEFAULT OFF): each step predict the realized next-K
@@ -100,7 +111,7 @@ TE_MICRO_BATCH_SIZE_PER_GPU="${TE_MICRO_BATCH_SIZE_PER_GPU:-1}"
 export VLLM_PORT="${VLLM_PORT:-29700}"
 
 
-EXP_NAME="${EXP_NAME:-sciworld_grpo_qwen2.5_3b_$(date -u +%Y%m%d_%H%M%S)}"
+EXP_NAME="${EXP_NAME:-appworld_grpo_qwen2.5_14b_$(date -u +%Y%m%d_%H%M%S)}"
 CKPT_DIR="${CKPT_DIR:-${ROOT}/checkpoints/${EXP_NAME}}"
 RUN_DIR="${RUN_DIR:-${ROOT}/runlogs/${EXP_NAME}}"
 # Checkpoint resume. 'auto' (default): auto-resume from the latest global_step_* in
@@ -111,7 +122,7 @@ RUN_DIR="${RUN_DIR:-${ROOT}/runlogs/${EXP_NAME}}"
 # 'disable' to force from-scratch.
 RESUME_MODE="${RESUME_MODE:-auto}"
 ROLLOUT_LOG_DIR="${ROLLOUT_LOG_DIR:-${RUN_DIR}/rollout_logs}"
-TRAIN_FILE="${TRAIN_FILE:-${ROOT}/data/train/sciworld_train.json}"
+TRAIN_FILE="${TRAIN_FILE:-${ROOT}/data/train/appworld_train.json}"
 LOG_PATH="${LOG_PATH:-}"
 
 mkdir -p "${CKPT_DIR}" "${RUN_DIR}" "${ROLLOUT_LOG_DIR}"
@@ -160,6 +171,12 @@ exec env \
     actor_rollout_ref.actor.ppo_epochs="${PPO_EPOCHS}" \
     actor_rollout_ref.actor.optim.lr="${POLICY_LR}" \
     actor_rollout_ref.actor.ppo_mini_batch_size="${PPO_MINI_BATCH_SIZE}" \
+    actor_rollout_ref.actor.use_dynamic_bsz="${USE_DYNAMIC_BSZ}" \
+    actor_rollout_ref.actor.ppo_max_token_len_per_gpu="${PPO_MAX_TOKEN_LEN_PER_GPU}" \
+    actor_rollout_ref.actor.ulysses_sequence_parallel_size="${ULYSSES_SP}" \
+    actor_rollout_ref.actor.fsdp_config.optimizer_offload="${OPTIMIZER_OFFLOAD}" \
+    actor_rollout_ref.model.use_remove_padding="${USE_REMOVE_PADDING}" \
+    actor_rollout_ref.rollout.temperature="${ROLLOUT_TEMPERATURE}" \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu="${PPO_MICRO_BATCH_SIZE_PER_GPU}" \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.dtype=bfloat16 \

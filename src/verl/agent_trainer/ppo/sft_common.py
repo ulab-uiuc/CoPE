@@ -84,10 +84,24 @@ def compute_sft_loss_from_logits(
     logits: torch.Tensor,
     labels: torch.Tensor,
     loss_mask: torch.Tensor,
+    sample_weight: torch.Tensor = None,
 ) -> torch.Tensor:
     """Next-token CE loss on the positions marked by ``loss_mask``.
 
     ``logits``: (B, T, V); ``labels``: (B, T); ``loss_mask``: (B, T).
+
+    ``sample_weight`` (optional, shape [B]) scales each sample's token losses. It
+    multiplies the numerator only; the denominator stays the unweighted token count.
+    So ``None`` (or all ones) reproduces the unweighted loss exactly, and with a single
+    sample in the micro-batch the result is exactly ``w * L``.
+
+    Weighting the denominator too (a weighted mean) looks equivalent but is not:
+    with a single sample per micro-batch -- ppo_micro_batch_size_per_gpu=1, the
+    setting every plan-forecast run uses -- w appears in both numerator and
+    denominator and cancels, so the weights have no effect at all (measured:
+    gradient cosine vs. unweighted = 1.000000). Scaling an already-averaged loss by
+    ``sample_weight.mean()`` has the opposite failure: correct at one sample per
+    micro-batch, but it averages the weights away as soon as there are more.
     """
     shift_logits = logits[:, :-1, :].contiguous()
     shift_labels = labels[:, 1:].contiguous()
@@ -102,7 +116,10 @@ def compute_sft_loss_from_logits(
     tok_loss = loss_fn(shift_logits.view(-1, vocab), ignored_labels.view(-1))
     tok_loss = tok_loss.view(shift_labels.shape)   # ignored positions already 0
     denom = shift_mask.sum().clamp(min=1.0)
-    return tok_loss.sum() / denom
+    if sample_weight is None:
+        return tok_loss.sum() / denom
+    w = sample_weight.to(tok_loss.dtype).view(-1, 1)   # [B, 1] broadcasts over T
+    return (tok_loss * w).sum() / denom                # denominator deliberately unweighted
 
 
 def compute_traj_lm_loss(log_prob, response_mask, obs_mask, row_mask=None):

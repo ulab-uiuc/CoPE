@@ -254,21 +254,6 @@ class vLLMRollout(BaseRollout):
         max_rounds = prompts.meta_info.get('max_rounds', 10)
         cur_device = prompts.batch["input_ids"].device
 
-        # Per-turn reminder appended to every observation. Two mutually-exclusive
-        # kinds (selected upstream in ray_trainer): 'plan' = re-state the inline
-        # Plan format each turn; 'think' = only nudge a Thought-before-Action.
-        plan_reminder = ""
-        _rk = prompts.meta_info.get('per_turn_reminder', None)
-        if _rk == 'plan':
-            from verl.agent_trainer.ppo.plan_forecast import inline_plan_reminder
-            plan_reminder = inline_plan_reminder(int(prompts.meta_info.get('plan_inline_k', 3)))
-        elif _rk == 'todo':
-            from verl.agent_trainer.ppo.plan_forecast import todo_plan_reminder
-            plan_reminder = todo_plan_reminder(int(prompts.meta_info.get('plan_inline_k', 3)))
-        elif _rk == 'think':
-            from verl.agent_trainer.ppo.plan_forecast import think_reminder
-            plan_reminder = think_reminder()
-
         do_sample = prompts.meta_info.get('do_sample', True)
         if not do_sample:
             kwargs = {
@@ -291,7 +276,7 @@ class vLLMRollout(BaseRollout):
             try:
                 env_clients[idx].reset(rollout_handler.item_id)
                 task = env_clients[idx].observe()
-                rollout_handler.add_user_message(self.tokenizer, task + plan_reminder)
+                rollout_handler.add_user_message(self.tokenizer, task)
             except TimeoutError:
                 print(f"Reset Timeout: Webarena Env Timeout. item id = {rollout_handler.item_id}")
                 rollout_handler.done = True
@@ -311,7 +296,7 @@ class vLLMRollout(BaseRollout):
                     step_output.reward,
                     step_output.done,
                 )
-                rollout_handler_ls[idx].add_user_message(self.tokenizer, state + plan_reminder)
+                rollout_handler_ls[idx].add_user_message(self.tokenizer, state)
                 return step_output.done
             except Exception as e:
                 rollout_handler_ls[idx].score = 0
@@ -350,6 +335,7 @@ class vLLMRollout(BaseRollout):
         # process ids
         rollout_bar.close()
         response_ids, response_attention_mask, response_position_ids, response_loss_mask, response_observation_mask = [], [], [], [], []
+        response_turn_ids = []   # Temporal Ensembling: action-turn index per token (-1 = none)
         scores, messages = [], []
         
         for rollout_handler in rollout_handler_ls:
@@ -364,6 +350,9 @@ class vLLMRollout(BaseRollout):
             response_position_ids.append(torch.tensor(rollout_handler.response_position_ids, dtype=torch.int, device=cur_device))
             response_loss_mask.append(torch.tensor(rollout_handler.response_loss_mask, dtype=torch.int, device=cur_device))
             response_observation_mask.append(torch.tensor(rollout_handler.response_observation_mask, dtype=torch.int, device=cur_device))
+            response_turn_ids.append(torch.tensor(
+                rollout_handler.response_turn_ids or [-1] * len(rollout_handler.response_loss_mask),
+                dtype=torch.long, device=cur_device))
             scores.append(self._shape_task_reward(
                 task_score=rollout_handler.score,
                 task_done=rollout_handler.done,
@@ -384,6 +373,11 @@ class vLLMRollout(BaseRollout):
         response_observation_mask = pad_sequence(response_observation_mask, batch_first=True, padding_value=0)
         if response_observation_mask.shape[1] < self.config.response_length:
             response_observation_mask = pad_sequence_to_length(response_observation_mask, self.config.response_length, 0)
+        # Pad turn ids with -1, never 0: 0 is a valid turn index, and padding with it
+        # would fold padding positions into the first action turn.
+        response_turn_ids = pad_sequence(response_turn_ids, batch_first=True, padding_value=-1)
+        if response_turn_ids.shape[1] < self.config.response_length:
+            response_turn_ids = pad_sequence_to_length(response_turn_ids, self.config.response_length, -1)
         response_length = response_ids.size(1)
         delta_position_ids = torch.arange(1, response_length + 1, device=cur_device)
         delta_position_ids = delta_position_ids.unsqueeze(0).repeat(batch_size, 1)
@@ -445,6 +439,10 @@ class vLLMRollout(BaseRollout):
                 'task_scores': reward_tensor
             },
             batch_size=batch_size)
+        # Temporal Ensembling needs per-token turn ids. Added only when te_enable is set,
+        # so with TE off the batch has exactly the keys it had before.
+        if bool(self.config.get('te_enable', False)):
+            batch['turn_ids'] = response_turn_ids[:, :response_length]
 
         # One-time structural check for turn-level advantage estimators: the turn count
         # derived from observation_mask must match the rollout's own round count. The
