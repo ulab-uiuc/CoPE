@@ -7,8 +7,8 @@
 #SBATCH --cpus-per-task=96
 #SBATCH --mem=0
 #SBATCH --time=12:00:00
-#SBATCH --output=${PROJECT_ROOT}/slurm_logs/tau2_grpo_%j.out
-#SBATCH --error=${PROJECT_ROOT}/slurm_logs/tau2_grpo_%j.err
+#SBATCH --output=slurm_logs/tau2_grpo_%j.out
+#SBATCH --error=slurm_logs/tau2_grpo_%j.err
 #
 # End-to-end GRPO on tau2-bench.
 #
@@ -26,10 +26,11 @@
 
 set -euo pipefail
 
-ROOT=${PROJECT_ROOT}
+# sbatch copies this script to a spool dir, so BASH_SOURCE is useless here.
+ROOT="${ROOT:-${SLURM_SUBMIT_DIR:-$PWD}}"
 cd "${ROOT}"
 
-MODEL_PATH="${MODEL_PATH:-${MODEL_DIR}/Qwen2.5-7B-Instruct}"
+MODEL_PATH="${MODEL_PATH:?set MODEL_PATH to the policy checkpoint}"
 USERSIM_MODEL="${USERSIM_MODEL:-${MODEL_PATH}}"
 USERSIM_PORT="${USERSIM_PORT:-38101}"
 # 40GB cards: a 14B is 28GB of bf16 weights, so both the rollout engine and the user
@@ -41,6 +42,11 @@ USERSIM_PORT="${USERSIM_PORT:-38101}"
 USERSIM_MODE="${USERSIM_MODE:-local}"
 USERSIM_LLM="${USERSIM_LLM:-openai/gpt-4o-mini}"
 USERSIM_API_KEY_FILE="${USERSIM_API_KEY_FILE:-${ROOT}/.secrets/openai_api_key}"
+# A local user simulator needs no credential -- vLLM accepts any key -- so only
+# forward the file when it exists. Passing a path that is not there made the env
+# servers die on startup in local mode.
+USERSIM_KEY_FILE_ARG=""
+[[ -r "${USERSIM_API_KEY_FILE}" ]] && USERSIM_KEY_FILE_ARG="${USERSIM_API_KEY_FILE}"
 USERSIM_TP="${USERSIM_TP:-1}"
 USERSIM_GPUS="$(seq -s, 0 $((USERSIM_TP - 1)))"
 USERSIM_GPU_MEM_UTIL="${USERSIM_GPU_MEM_UTIL:-0.45}"
@@ -49,6 +55,10 @@ BASE_PORT="${BASE_PORT:-36301}"
 ENVS_PER_GPU="${ENVS_PER_GPU:-4}"
 
 TAU2_DOMAIN="${TAU2_DOMAIN:-retail}"
+# TAU2_DOMAIN uses "+" as its separator because a comma in sbatch --export has to
+# be escaped and the backslash survives into the value. The dataset files are named
+# with hyphens, so translate before building the default path.
+TAU2_DOMAIN_SLUG="${TAU2_DOMAIN//+/-}"
 TAU2_TASK_SPLIT="${TAU2_TASK_SPLIT:-train}"
 TAU2_REWARD_BASIS="${TAU2_REWARD_BASIS:-env}"
 TAU2_REWARD_SHAPE="${TAU2_REWARD_SHAPE:-dense}"
@@ -182,8 +192,8 @@ setsid env \
   TAU2_FORCE_DONE_AFTER="${MAX_ROUNDS}" \
   TAU2_USER_LLM="${TAU2_USER_LLM_ARG}" \
   ${TAU2_USER_API_BASE_ARG:+TAU2_USER_API_BASE="${TAU2_USER_API_BASE_ARG}"} \
-  TAU2_USER_API_KEY_FILE="${USERSIM_API_KEY_FILE}" \
-  TAU2_ENV="${TAU2_ENV:-${TAU2_ENV_DEFAULT}}" \
+  ${USERSIM_KEY_FILE_ARG:+TAU2_USER_API_KEY_FILE="${USERSIM_KEY_FILE_ARG}"} \
+  TAU2_ENV="${TAU2_ENV:?set TAU2_ENV to the tau2 conda env}" \
   NO_PROXY="${NO_PROXY}" no_proxy="${no_proxy}" \
   LOG_DIR="${RUN_DIR}/env_cluster" \
   bash "${ROOT}/scripts/run_tau2_env_service.sh" &
@@ -211,7 +221,7 @@ BASE_PORT="${BASE_PORT}" \
 MODEL_PATH="${MODEL_PATH}" \
 EXP_NAME="${EXP_NAME}" \
 RUN_DIR="${RUN_DIR}" \
-TRAIN_FILE="${TRAIN_FILE:-${ROOT}/data/tau2_${TAU2_DOMAIN}_${TAU2_TASK_SPLIT}.json}" \
+TRAIN_FILE="${TRAIN_FILE:-${ROOT}/data/tau2_${TAU2_DOMAIN_SLUG}_${TAU2_TASK_SPLIT}.json}" \
   bash "${ROOT}/scripts/run_tau2_grpo_train.sh" 2>&1 | tee "${RUN_DIR}/train.log"
 
 echo "=== done ==="

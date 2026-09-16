@@ -173,10 +173,21 @@ class Tau2EnvServer:
         if api_base:
             self.user_llm_args["api_base"] = api_base
         key_file = os.environ.get("TAU2_USER_API_KEY_FILE")
+        api_key = None
         if key_file:
-            with open(os.path.expanduser(key_file)) as f:
-                api_key = f.read().strip()
-        else:
+            path = os.path.expanduser(key_file)
+            try:
+                with open(path) as f:
+                    api_key = f.read().strip()
+            except FileNotFoundError:
+                # Only the hosted path actually needs a credential; with a local
+                # endpoint configured, fall through to the EMPTY key below rather
+                # than taking the whole env-server cluster down at startup.
+                if not api_base:
+                    raise
+                print(f"[tau2] TAU2_USER_API_KEY_FILE={path} not found; using a "
+                      f"local endpoint, so continuing without a key")
+        if api_key is None and not key_file:
             api_key = os.environ.get("TAU2_USER_API_KEY") or os.environ.get("OPENAI_API_KEY")
         if api_key:
             self.user_llm_args["api_key"] = api_key

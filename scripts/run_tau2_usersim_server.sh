@@ -24,7 +24,7 @@ PORT="${PORT:-38001}"
 # (and USERSIM_GPU to a matching comma list) for anything above ~8B.
 USERSIM_GPU="${USERSIM_GPU:-0}"
 USERSIM_TP="${USERSIM_TP:-1}"
-USERSIM_ENV="${USERSIM_ENV:-${TRAIN_ENV}}"
+USERSIM_ENV="${USERSIM_ENV:-${TRAIN_ENV:?set TRAIN_ENV or USERSIM_ENV}}"
 CONDA_SH="${CONDA_SH:-/opt/conda/etc/profile.d/conda.sh}"
 GPU_MEM_UTIL="${USERSIM_GPU_MEM_UTIL:-0.45}"
 MAX_MODEL_LEN="${USERSIM_MAX_MODEL_LEN:-16384}"

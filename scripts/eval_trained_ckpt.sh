@@ -11,12 +11,12 @@
 # model's config is staged there first. The weights come from the shards either way.
 
 set -euo pipefail
-ROOT=${PROJECT_ROOT}
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT}"
 
 EXP="${EXP:-tau2_infopo_align}"
 TAG="${TAG:-grpo}"
-BASE_MODEL="${BASE_MODEL:-${MODEL_DIR}/Qwen2.5-7B-Instruct}"
+BASE_MODEL="${BASE_MODEL:?set BASE_MODEL to the base checkpoint}"
 
 CKPT_ROOT="${ROOT}/checkpoints/${EXP}"
 [[ -d "${CKPT_ROOT}" ]] || { echo "FATAL: no checkpoints at ${CKPT_ROOT}"; exit 1; }

@@ -6,8 +6,8 @@
 #SBATCH --cpus-per-task=96
 #SBATCH --mem=0
 #SBATCH --time=04:00:00
-#SBATCH --output=${PROJECT_ROOT}/slurm_logs/tau2_eval_%j.out
-#SBATCH --error=${PROJECT_ROOT}/slurm_logs/tau2_eval_%j.err
+#SBATCH --output=slurm_logs/tau2_eval_%j.out
+#SBATCH --error=slurm_logs/tau2_eval_%j.err
 #
 # A/B tau2-bench reward shaping (or any env-server flag) WITHOUT training.
 #
@@ -20,10 +20,11 @@
 
 set -euo pipefail
 
-ROOT=${PROJECT_ROOT}
+# sbatch copies this script to a spool dir, so BASH_SOURCE is useless here.
+ROOT="${ROOT:-${SLURM_SUBMIT_DIR:-$PWD}}"
 cd "${ROOT}"
 
-MODEL_PATH="${MODEL_PATH:-${MODEL_DIR}/Qwen2.5-7B-Instruct}"
+MODEL_PATH="${MODEL_PATH:?set MODEL_PATH to the checkpoint to evaluate}"
 # The user simulator must be held FIXED when comparing policies, otherwise a change in
 # score cannot be attributed to the policy. Defaults to MODEL_PATH for the single-model
 # case; set it explicitly to the base model when evaluating a trained checkpoint.

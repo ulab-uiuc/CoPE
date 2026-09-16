@@ -8,7 +8,7 @@
 # Egress and the API key are separate failures and the layers below separate them.
 # Nothing here prints the key.
 
-ROOT=${PROJECT_ROOT}
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 KEY_FILE="${KEY_FILE:-${ROOT}/.secrets/openai_api_key}"
 MODEL="${MODEL:-gpt-4o-mini}"
 PY=${TAU2_ENV_DEFAULT}/bin/python
