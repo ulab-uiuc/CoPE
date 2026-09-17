@@ -1,0 +1,37 @@
+[
+  {
+    "item_id": "tau2_0",
+    "task_type": "retail",
+    "task_id": "0"
+  },
+  {
+    "item_id": "tau2_1",
+    "task_type": "retail",
+    "task_id": "1"
+  },
+  {
+    "item_id": "tau2_2",
+    "task_type": "retail",
+    "task_id": "2"
+  },
+  {
+    "item_id": "tau2_3",
+    "task_type": "retail",
+    "task_id": "3"
+  },
+  {
+    "item_id": "tau2_4",
+    "task_type": "retail",
+    "task_id": "4"
+  },
+  {
+    "item_id": "tau2_5",
+    "task_type": "retail",
+    "task_id": "6"
+  },
+  {
+    "item_id": "tau2_6",
+    "task_type": "retail",
+    "task_id": "7"
+  }
+]

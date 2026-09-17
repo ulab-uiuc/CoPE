@@ -44,8 +44,9 @@ src/verl/                 the training framework (fork of AgentGym-RL's verl)
   agent_trainer/ppo/      action_forecast, sft_common, ray_trainer
   trainer/ppo/            info_grpo, intrinsic_reward, turn_structure
   workers/                actor, rollout, FSDP workers
-src/envs/tau2/            the τ²-bench environment server and client
-AgentGym/                 submodule: every other environment's server
+AgentGym/                  submodule: every environment's server and client
+  agentenv-tau2/           the τ²-bench environment server
+  agentenv/envs/tau2.py    the τ²-bench client
 examples/train/           per-environment configs, two baselines, method variants
 examples/eval/            evaluation configs
 scripts/                  launchers, evaluation harness, scoring, visualisation
@@ -82,7 +83,7 @@ make numbers comparable to published baselines.
 git clone https://github.com/sierra-research/tau2-bench.git
 git -C tau2-bench checkout c5b2d22
 conda create -y -p ./envs/tau2 python=3.12
-./envs/tau2/bin/pip install -e tau2-bench -e src/envs/tau2 gymnasium
+./envs/tau2/bin/pip install -e tau2-bench -e AgentGym/agentenv-tau2 gymnasium
 
 # the item-id files in data/ are committed, but this regenerates them
 ./envs/tau2/bin/python scripts/make_tau2_itemid.py \
