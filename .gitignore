@@ -170,6 +170,3 @@ saves/
 .hf_cache/
 wandb/
 outputs/
-!src/envs/
-!src/envs/**
-src/envs/**/__pycache__/

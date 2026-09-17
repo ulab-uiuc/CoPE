@@ -16,7 +16,7 @@ Run with the *training* interpreter, with the cope AgentGym checkout on PYTHONPA
 import argparse
 import sys
 
-from envs.tau2.tau2_client import Tau2EnvClient, _clean_action
+from agentenv.envs.tau2 import Tau2EnvClient, _clean_action
 
 
 def check_clean_action() -> list[str]:
