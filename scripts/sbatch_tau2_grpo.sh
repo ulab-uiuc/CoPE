@@ -38,10 +38,21 @@ USERSIM_PORT="${USERSIM_PORT:-38101}"
 # USERSIM_GPUS is derived from USERSIM_TP rather than passed in -- a comma-separated
 # value cannot survive `sbatch --export` without being mangled into a literal backslash.
 # local  -> start a vLLM user simulator on the aux node (needs 2 nodes)
-# hosted -> use a hosted model (gpt-4o-mini) via litellm; no server, 1 node is enough
+# hosted -> use a hosted model via litellm; no server, 1 node is enough. The model
+#           string carries the provider: `openai/gpt-4o-mini` (the tau2 paper's
+#           customer) or `anthropic/claude-sonnet-5`.
 USERSIM_MODE="${USERSIM_MODE:-local}"
 USERSIM_LLM="${USERSIM_LLM:-openai/gpt-4o-mini}"
-USERSIM_API_KEY_FILE="${USERSIM_API_KEY_FILE:-${ROOT}/.secrets/openai_api_key}"
+# litellm routes on that provider prefix and each provider reads a different
+# credential, so default the key file to match the provider instead of always
+# naming OpenAI's. Pointing an anthropic/* run at .secrets/openai_api_key does not
+# fail at submit time -- it surfaces as a 401 raised inside litellm on the first
+# customer turn of every episode, several hops from anything that mentions a key.
+case "${USERSIM_LLM}" in
+  anthropic/*) _USERSIM_KEY_DEFAULT="${ROOT}/.secrets/anthropic_api_key" ;;
+  *)           _USERSIM_KEY_DEFAULT="${ROOT}/.secrets/openai_api_key" ;;
+esac
+USERSIM_API_KEY_FILE="${USERSIM_API_KEY_FILE:-${_USERSIM_KEY_DEFAULT}}"
 # A local user simulator needs no credential -- vLLM accepts any key -- so only
 # forward the file when it exists. Passing a path that is not there made the env
 # servers die on startup in local mode.
