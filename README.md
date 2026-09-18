@@ -37,6 +37,12 @@ Two baselines are configured alongside the method: `examples/train/AgentGym-RL/`
 the `scripts/run_*_grpo_train.sh` launchers — `ACTION_FORECAST_ENABLE`,
 `INFO_INTRINSIC_WEIGHT` — rather than by forked copies of the script.
 
+Both of those are RL baselines. The prompting floor underneath them — the environment's
+own ReAct prompt against an untrained model, no weights updated — is
+`scripts/eval_{alfworld,webshop}_openai.py`, documented in
+`docs/PROMPTING_BASELINES.md`. It reads the prompt off the same env client the rollout
+uses, so baseline and trained numbers differ in the weights and nothing else.
+
 ## Layout
 
 ```
@@ -51,6 +57,7 @@ examples/train/           per-environment configs, two baselines, method variant
 examples/eval/            evaluation configs
 scripts/                  launchers, evaluation harness, scoring, visualisation
 docs/TAU2_GRPO.md         τ²-bench protocol alignment and findings
+docs/PROMPTING_BASELINES.md  the untrained prompting/ReAct floor, and its traps
 data/                     τ²-bench item-id datasets
 tests/                    the additive claim, asserted element-wise
 ```
