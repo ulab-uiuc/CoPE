@@ -44,11 +44,18 @@ CONCURRENCY="${CONCURRENCY:-32}"
 # telecom's system prompt alone is 6212 tokens; 16384 leaves too little for a 15-round
 # conversation on top of it.
 POLICY_MAX_LEN="${POLICY_MAX_LEN:-16384}"
-# local -> vLLM user simulator on this node. hosted -> gpt-4o-mini via litellm, which is
-# what the published tau2 numbers use; a 7B customer is a different benchmark.
+# local -> vLLM user simulator on this node. hosted -> a hosted customer via litellm.
+# `openai/gpt-4o-mini` is what the published tau2 numbers use; a 7B customer is a
+# different benchmark. `anthropic/claude-sonnet-5` is a third, stronger customer.
 USERSIM_MODE="${USERSIM_MODE:-local}"
 USERSIM_LLM="${USERSIM_LLM:-openai/gpt-4o-mini}"
-USERSIM_API_KEY_FILE="${USERSIM_API_KEY_FILE:-${ROOT}/.secrets/openai_api_key}"
+# Key file follows the provider prefix -- see sbatch_tau2_grpo.sh for why the wrong
+# default is worse than no default.
+case "${USERSIM_LLM}" in
+  anthropic/*) _USERSIM_KEY_DEFAULT="${ROOT}/.secrets/anthropic_api_key" ;;
+  *)           _USERSIM_KEY_DEFAULT="${ROOT}/.secrets/openai_api_key" ;;
+esac
+USERSIM_API_KEY_FILE="${USERSIM_API_KEY_FILE:-${_USERSIM_KEY_DEFAULT}}"
 
 TAG="${TAG:-$(date -u +%Y%m%d_%H%M%S)}"
 OUT_DIR="${ROOT}/runlogs/tau2_eval_${TAG}"

@@ -282,6 +282,39 @@ side — episodes come back empty and rewards go to zero rather than erroring �
 `runlogs/<exp>/env_cluster/*.log` for `no credits remaining` before trusting a flat
 reward curve.
 
+### Picking the hosted customer
+
+`USERSIM_MODE=hosted` takes any litellm model string in `USERSIM_LLM`. The provider
+prefix decides which credential is read, and the launchers default the key file to
+match it — `openai/*` → `.secrets/openai_api_key`, `anthropic/*` →
+`.secrets/anthropic_api_key`. That defaulting exists because the wrong key does not
+fail at submit time: litellm raises a 401 on the first customer turn of every episode,
+several hops from anything that names a key file.
+
+```bash
+USERSIM_MODE=hosted USERSIM_LLM=anthropic/claude-sonnet-5 \
+  sbatch --nodes=1 ... scripts/sbatch_tau2_grpo.sh
+```
+
+Use `openai/gpt-4o-mini` for anything meant to compare against published tau2 numbers —
+it is the paper's protocol, and absolute rates do not transfer across customers (see the
+methodological note below). A stronger customer is a different benchmark, not a better
+measurement of the same one.
+
+**Reachability on this cluster, measured rather than assumed.** Compute nodes *do* have
+public egress: from an a100, `api.anthropic.com` answers 405 to a GET in 0.05s,
+`api.openai.com` 401, `pypi.org` 200. What they cannot reach is the internal
+`ANTHROPIC_BASE_URL` proxy (`plugboardv2.x2p.facebook.net`), which times out — so a
+hosted customer must go to the first-party API with a key, not through that proxy.
+
+Two traps sit in front of that. The submitting shell's `http_proxy` / `https_proxy` ride
+along through `sbatch --export=ALL` and point at addresses that do not exist on a compute
+node, which turns every outbound call into a full-timeout hang rather than an error;
+`run_tau2_env_service.sh` already unsets them for the env servers, and
+`sbatch_tau2_eval.sh` does the same for the eval process — keep it that way. And an
+unreachable endpoint looks exactly like a slow one from inside litellm, so a wrong
+network assumption surfaces as "the run is just slow", not as a connection error.
+
 ## Measured result
 
 ### GRPO under the aligned protocol
