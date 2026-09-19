@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from importlib.metadata import version, PackageNotFoundError
+from packaging import version as vs
 
 
 def get_version(pkg):
@@ -25,9 +26,19 @@ def get_version(pkg):
 package_name = 'vllm'
 package_version = get_version(package_name)
 
-if package_version <= '0.6.3':
+# Two engine APIs live behind one rollout. Up to 0.6.3 verl vendors a patched vLLM
+# (verl/third_party/vllm/vllm_v_0_6_3) whose LLM takes the FSDP module directly and
+# exposes sync/offload_model_weights + init/free_cache_engine. From 0.6.6.post2 on
+# vLLM supports SPMD inference, and verl drives the stock LLM through the external
+# launcher with sleep()/wake_up() in place of the cache-engine calls. vllm_rollout
+# implements both; the agent loop itself is identical either way.
+#
+# The comparison has to go through packaging.version rather than string ordering:
+# '0.10.0' sorts before '0.6.3' as a string, which would silently select the
+# customized path on a vLLM new enough to have dropped that API.
+if vs.parse(package_version) <= vs.parse('0.6.3'):
     vllm_mode = 'customized'
-    from .vllm_rollout import vLLMRollout
-# else:
-#     vllm_mode = 'spmd'
-#     from .vllm_rollout_spmd import vLLMRollout
+else:
+    vllm_mode = 'spmd'
+
+from .vllm_rollout import vLLMRollout

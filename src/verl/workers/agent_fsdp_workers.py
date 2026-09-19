@@ -299,11 +299,14 @@ class ActorRolloutRefWorker(Worker):
         from verl.workers.rollout.agent_vllm_rollout import vLLMRollout
         from verl.workers.sharding_manager import FSDPVLLMShardingManager
         log_gpu_memory_usage('Before building vllm rollout', logger=None)
+        # The SPMD engine loads its own copy of the weights from disk, so it needs the
+        # path as well as the module. Ignored by the vendored (<=0.6.3) engine.
         rollout = vLLMRollout(actor_module=self.actor_module_fsdp,
                                                  rollout_config=self.config.rollout,
                                                  agentgym_config=self.config.agentgym,
                                                  tokenizer=self.tokenizer,
-                                                 model_hf_config=self.actor_model_config)
+                                                 model_hf_config=self.actor_model_config,
+                                                 model_path=copy_local_path_from_hdfs(self.config.model.path))
         log_gpu_memory_usage('After building vllm rollout', logger=None)
         if torch.distributed.get_world_size() == 1:
             self.config.rollout.load_format = 'dummy_hf'

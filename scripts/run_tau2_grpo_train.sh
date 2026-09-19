@@ -125,6 +125,28 @@ export HF_HOME="${HF_HOME:-${ROOT}/.hf_cache}"
 export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-${HF_HOME}/datasets}"
 mkdir -p "${HF_DATASETS_CACHE}"
 
+# vLLM's sleep mode -- which the SPMD rollout enables and which
+# FSDPVLLMShardingManager drives with sleep()/wake_up() around every generation pass --
+# allocates through CuMemAllocator, and torch refuses to combine a memory pool with
+# expandable_segments (pytorch#147851): engine construction dies with "Expandable
+# segments are not compatible with memory pool". The vendored <=0.6.3 engine has no
+# sleep mode, so it keeps the original setting. Set PYTORCH_CUDA_ALLOC_CONF explicitly
+# to override either default.
+if [[ -z "${PYTORCH_CUDA_ALLOC_CONF+x}" ]]; then
+  if python - <<'PYEOF'
+import sys
+from importlib.metadata import version
+from packaging import version as v
+sys.exit(0 if v.parse(version('vllm')) <= v.parse('0.6.3') else 1)
+PYEOF
+  then
+    PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
+  else
+    PYTORCH_CUDA_ALLOC_CONF=""
+  fi
+fi
+echo "PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-<unset>}"
+
 cd "${TRAIN_CODE_DIR}"
 exec env \
   -u http_proxy -u https_proxy -u all_proxy \
@@ -140,9 +162,14 @@ exec env \
   HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}" \
   VLLM_USE_MODELSCOPE=0 \
   VLLM_WORKER_MULTIPROC_METHOD=spawn \
+  `# On vLLM >= 0.6.6 the rollout runs the SPMD engine, and FSDPVLLMShardingManager` \
+  `# loads the actor's dtensor weights through` \
+  `# llm_engine.model_executor.driver_worker.worker.model_runner.model -- a V0 path.` \
+  `# The V1 engine has no model_executor, so pin V0. Ignored by vLLM <= 0.6.3.` \
+  VLLM_USE_V1="${VLLM_USE_V1:-0}" \
   VLLM_ATTENTION_BACKEND=FLASH_ATTN \
   HYDRA_FULL_ERROR=1 \
-  PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+  ${PYTORCH_CUDA_ALLOC_CONF:+PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF}"} \
   WANDB_MODE="${WANDB_MODE}" \
   python -m verl.agent_trainer.main_ppo \
     algorithm.adv_estimator=grpo \
@@ -156,6 +183,9 @@ exec env \
     actor_rollout_ref.agentgym.task_name="${TASK_NAME}" \
     actor_rollout_ref.agentgym.env_addr="'${ENV_ADDR}'" \
     actor_rollout_ref.agentgym.timeout=2400 \
+    `# NATIVE_TOOLS=True pairs with TAU2_PROMPT_VARIANT=native on the env servers:` \
+    `# tau2's own tool-calling protocol instead of the ReAct text wrapper.` \
+    ${NATIVE_TOOLS:++actor_rollout_ref.agentgym.native_tools=${NATIVE_TOOLS}} \
     actor_rollout_ref.model.path="${MODEL_PATH}" \
     actor_rollout_ref.model.use_remove_padding="${USE_REMOVE_PADDING}" \
     actor_rollout_ref.actor.use_kl_loss="${USE_KL_LOSS:-True}" \

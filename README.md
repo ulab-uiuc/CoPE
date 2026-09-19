@@ -88,7 +88,14 @@ conda create -y -p ./envs/tau2 python=3.12
 # the item-id files in data/ are committed, but this regenerates them
 ./envs/tau2/bin/python scripts/make_tau2_itemid.py \
     --domains retail airline telecom --split train --out data/
+
+# one upstream fix tau2's CLI needs against current vLLM (idempotent; the one-command
+# launcher applies it for you)
+bash scripts/patch_tau2_bench.sh
 ```
+
+The training stack runs on vLLM 0.6.3 (verl's vendored engine) **or** vLLM >= 0.6.6
+(the SPMD engine, required on Blackwell GPUs); see `docs/TAU2_GRPO.md`.
 
 ## Running
 
@@ -102,9 +109,16 @@ ACTION_FORECAST_ENABLE=True ACTION_FORECAST_COEF=0.01 \
 
 # tmux launchers bring up env servers + training together
 bash scripts/launch_sciworld_grpo_tmux.sh
-bash scripts/launch_tau2_grpo_tmux.sh
 
-# τ²-bench with InfoPO's published hyperparameters, for a comparable run
+# τ²-bench in one command: customer + env cluster + training, torn down on exit.
+# Default preset reproduces InfoPO's training protocol (three domains, tau2's native
+# tool calling, gpt-4o-mini customer) with plain GRPO; PRESET=repo is the retail/ReAct
+# setup. DRY_RUN=1 checks prerequisites and prints the configuration.
+TRAIN_ENV=<conda env> MODEL_PATH=<Qwen2.5-7B-Instruct snapshot> CUDA_VISIBLE_DEVICES=0,1,2,3 \
+  bash examples/train/AgentGym-RL/tau2_train.sh
+bash scripts/launch_tau2_grpo_tmux.sh          # same pipeline, detached in tmux
+
+# τ²-bench with InfoPO's published hyperparameters on slurm
 bash scripts/launch_tau2_infopo_aligned.sh
 ```
 

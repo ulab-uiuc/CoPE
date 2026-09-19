@@ -121,6 +121,15 @@ class RLHFDataset(Dataset):
         if hasattr(self.env_client, "conversation_start_for"):
             conv_start = self.env_client.conversation_start_for(example.get("task_type"))
         instruction = conv_start[0]["value"]
+        if conv_start[0].get("from") == "system":
+            # tau2's native protocol (InfoPO-aligned): the policy is the system message
+            # itself, there is no "Ok." turn, and Qwen's default system line must not be
+            # prepended. The literal string below has to match what the chat template
+            # renders for [{"role": "system", ...}] token for token, because the
+            # rollout re-renders its generation prompt from `messages`.
+            messages = [{"role": "system", "content": instruction}]
+            prompt_with_chat_template = "<|im_start|>system\n" + instruction + "<|im_end|>"
+            return messages, prompt_with_chat_template
         ack = conv_start[1]["value"]
         messages = [{"role": "user", "content": instruction},
                      {"role": "assistant", "content": ack}]

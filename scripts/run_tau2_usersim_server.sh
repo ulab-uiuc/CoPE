@@ -17,7 +17,10 @@ set -euo pipefail
 USERSIM_MODEL="${USERSIM_MODEL:?set USERSIM_MODEL to the user-simulator model path}"
 SERVED_NAME="${SERVED_NAME:-user-sim}"
 HOST="${HOST:-127.0.0.1}"
-PORT="${PORT:-38001}"
+# Listening ports stay below 32768: the kernel hands out ephemeral source ports from
+# 32768-60999 (see /proc/sys/net/ipv4/ip_local_port_range), and a listener inside that
+# range can lose its port to an outbound connection -- EADDRINUSE at startup.
+PORT="${PORT:-20301}"
 # Dedicated GPU(s): keep them off the training GPUs so the simulator is not fighting the
 # actor for memory when vLLM re-inits its cache engine each rollout. A 14B in bf16 is
 # 28GB of weights and will not fit one 40GB card alongside a KV cache -- set USERSIM_TP=2
