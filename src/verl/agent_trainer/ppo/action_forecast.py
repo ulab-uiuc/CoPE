@@ -52,8 +52,11 @@ _FENCE_RE = re.compile(r"```(?:python)?\s*\n(.*?)```", re.S)
 # either a ``<tool_call>{json}</tool_call>`` block or a plain message to the customer,
 # and the conversation is [system, user, assistant, tool|user, assistant, ...] rather
 # than the ReAct instr/ack/obs layout. The forecast target for a tool call is the call
-# itself as one JSON line (what the env executes); for a message it is the message on
-# one line, prefixed ``say:`` so the two kinds of action stay distinguishable.
+# in the exact surface form the policy emits it, ``<tool_call>{json}</tool_call>`` on one
+# line; for a message it is the message on one line, prefixed ``say:``. The target must
+# be the executed form: with bare JSON as the target, a 0.1-weighted forecast loss taught
+# the policy to write bare JSON lines in ordinary turns (19.5% of turns by step 5, tool
+# calls down from 29% to 5%), which the client forwards to the customer as text.
 _NATIVE_TOOL_ENVS = ("tau2",)
 _TOOL_CALL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.S)
 _NATIVE_SAY_MAX_CHARS = 200
@@ -66,10 +69,11 @@ def _native_action(assistant_text: str) -> str:
     if m:
         try:
             call = json.loads(m.group(1))
-            return json.dumps({"name": call.get("name"), "arguments": call.get("arguments", {})},
+            body = json.dumps({"name": call.get("name"), "arguments": call.get("arguments", {})},
                               ensure_ascii=False, separators=(",", ":"))
         except Exception:
-            return m.group(1).strip()
+            body = " ".join(m.group(1).split())
+        return f"<tool_call>{body}</tool_call>"
     words = text.split()
     if not words:
         return ""

@@ -45,10 +45,16 @@ def test_react_layout_unchanged():
     assert extract_action(REACT[3]["content"]) == "go north"
 
 
-def test_extract_native_tool_call_is_one_json_line():
+def _call(action):
+    assert action.startswith("<tool_call>") and action.endswith("</tool_call>") and "\n" not in action
+    return json.loads(action[len("<tool_call>"):-len("</tool_call>")])
+
+
+def test_extract_native_tool_call_is_one_line_in_the_executed_form():
+    # the target is exactly what the policy must emit for the call to run, so a forecast
+    # that bleeds into an ordinary turn is still a valid tool call rather than bare JSON
     out = extract_action(NATIVE[2]["content"], env="tau2")
-    assert "\n" not in out
-    assert json.loads(out) == {"name": "find_user_id_by_email", "arguments": {"email": "a@b.c"}}
+    assert _call(out) == {"name": "find_user_id_by_email", "arguments": {"email": "a@b.c"}}
 
 
 def test_extract_native_message_is_one_line_with_say_prefix():
@@ -67,11 +73,11 @@ def test_native_targets_skip_invalid_looks_past_the_failed_call():
     tg = build_action_targets(NATIVE, k=3, skip_invalid=True, env="tau2")
     by_turn = {t["prefix_end"] + 1: t["actions"] for t in tg}
     # from the message turn (idx 4): next effective actions skip the failed cancel (idx 6)
-    names = [a.split(":", 1)[0] if a.startswith("say") else json.loads(a)["name"] for a in by_turn[4]]
+    names = [a.split(":", 1)[0] if a.startswith("say") else _call(a)["name"] for a in by_turn[4]]
     assert names == ["say", "get_order_details", "say"]
     # without skip_invalid the failed call is part of the target
     tg2 = build_action_targets(NATIVE, k=3, skip_invalid=False, env="tau2")
     by2 = {t["prefix_end"] + 1: t["actions"] for t in tg2}
-    assert json.loads(by2[6][0])["name"] == "cancel_pending_order"
+    assert _call(by2[6][0])["name"] == "cancel_pending_order"
     # every target's prefix ends on the observation the action answers
     assert all(NATIVE[t["prefix_end"]]["role"] in ("user", "tool") for t in tg)
