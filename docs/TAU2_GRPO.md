@@ -473,6 +473,28 @@ The binary column is two independent runs' worth of flat (−0.25 se and +0.02 s
 the contrast is not a seed artifact. The dense run is a single seed — repeat it before
 treating 16.4% as a number rather than a direction.
 
+
+### Evaluation of the trained policy (τ² CLI, test split, Avg@4)
+
+`global_step_50` of the run above (49 policy steps of plain GRPO), merged to HF and evaluated
+through tau2's own CLI at c5b2d22 exactly as the base row was: test split, 4 trials per task,
+max_steps 200, agent temperature 0, gpt-4o-mini-2024-07-18 customer at temperature 0.
+
+| domain | base (measured here) | GRPO step 50 | pass^4 (any of 4) | paper: Qwen2.5-7B prompting | paper: InfoPO |
+|---|---|---|---|---|---|
+| airline (20 tasks) | 8.8 | **26.2** | 40.0 | 7.5 | 16.3 |
+| retail (40 tasks) | 9.4 | **17.5** | 40.0 | 13.1 | 18.8 |
+| telecom (40 tasks) | 8.1 | **38.8** | 45.0 | 14.4 | 18.1 |
+| mean | 8.8 | **27.5** | — | 11.7 | 17.7 |
+
+1 se is about 2.3 points. Remaining failures are mostly greedy-decoding loops on a failing
+tool call (tau2 ends the episode as `too_many_errors`: retail 31/160, airline 8/80,
+telecom 5/160) and telecom episodes that hit the 200-step cap (21/160). Tool calls leaking
+into message content — the base model's telecom failure mode above — are gone (≤0.2% of
+assistant turns). Two domain runs died once with `ContextWindowExceededError` on a looping
+episode (this tau2 version does not catch it per task) and were resumed; the affected pairs
+score 0 either way.
+
 ## Verification
 
 Stages 0–2 need no GPU. Stage 3 onward does.
