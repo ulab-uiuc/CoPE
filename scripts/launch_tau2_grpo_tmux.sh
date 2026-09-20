@@ -2,9 +2,11 @@
 #
 # τ²-bench GRPO in a detached tmux session -- the same pipeline as
 # examples/train/AgentGym-RL/tau2_grpo_train.sh, but it survives the terminal closing.
+# scripts/launch_tau2_cope_tmux.sh is this script with the action-forecast switch on.
 #
-#   bash scripts/launch_tau2_grpo_tmux.sh                     # InfoPO preset
+#   bash scripts/launch_tau2_grpo_tmux.sh                     # InfoPO preset, plain GRPO
 #   PRESET=repo bash scripts/launch_tau2_grpo_tmux.sh         # this repo's retail setup
+#   DRY_RUN=1 bash scripts/launch_tau2_grpo_tmux.sh           # session prints the config and exits
 #   USERSIM_MODE=local USERSIM_GPU=0 CUDA_VISIBLE_DEVICES=1,2,3 \
 #     bash scripts/launch_tau2_grpo_tmux.sh                   # free, local customer
 #
@@ -21,9 +23,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 command -v tmux >/dev/null || { echo "FATAL: tmux not found" >&2; exit 1; }
 
 PRESET="${PRESET:-infopo}"
+VARIANT="${VARIANT:-grpo}"          # grpo | cope (set by launch_tau2_cope_tmux.sh)
 RUN_TS="$(date -u +%Y%m%d_%H%M%S)"
-EXP_NAME="${EXP_NAME:-tau2_${PRESET}_grpo_${RUN_TS}}"
-SESSION="${SESSION:-tau2_grpo${RUN_TAG:+_${RUN_TAG}}}"
+EXP_NAME="${EXP_NAME:-tau2_${PRESET}_${VARIANT}_${RUN_TS}}"
+SESSION="${SESSION:-tau2_${VARIANT}${RUN_TAG:+_${RUN_TAG}}}"
 RUN_DIR="${ROOT}/runlogs/${EXP_NAME}"
 mkdir -p "${RUN_DIR}"
 
@@ -45,8 +48,9 @@ for v in PRESET TRAIN_ENV TAU2_ENV CONDA_SH TAU2_BENCH_DIR TAU2_DATA_DIR MODEL_P
          MAX_TOKENS_PER_TURN MAX_PROMPT_LENGTH MAX_RESPONSE_LENGTH MAX_MODEL_LEN \
          ROLLOUT_GPU_MEMORY_UTILIZATION SAVE_FREQ RESUME_MODE \
          ACTION_FORECAST_ENABLE ACTION_FORECAST_COEF ACTION_FORECAST_K \
-         ACTION_FORECAST_GATE ACTION_FORECAST_MAX_LENGTH ACTION_FORECAST_SEQ \
-         GRPO_FILTER_DEGENERATE; do
+         ACTION_FORECAST_GATE ACTION_FORECAST_SKIP_INVALID ACTION_FORECAST_GROUP_NORM \
+         ACTION_FORECAST_SUCCESS_THRESHOLD ACTION_FORECAST_MAX_LENGTH ACTION_FORECAST_SEQ \
+         GRPO_FILTER_DEGENERATE DRY_RUN; do
   if [ -n "${!v:-}" ]; then FWD="${FWD} ${v}=$(printf '%q' "${!v}")"; fi
 done
 
@@ -54,8 +58,9 @@ tmux new-session -d -s "${SESSION}" \
   "cd ${ROOT} && EXP_NAME=${EXP_NAME} RUN_DIR=${RUN_DIR}${FWD} bash ${ROOT}/scripts/run_tau2_pipeline.sh 2>&1 | tee ${RUN_DIR}/pipeline.log"
 
 echo "--------------------------------------------------"
-echo "tau2 GRPO launched in tmux session: ${SESSION}"
+echo "tau2 ${VARIANT} launched in tmux session: ${SESSION}"
 echo "preset      : ${PRESET}"
+echo "forecast    : ${ACTION_FORECAST_ENABLE:-False}${ACTION_FORECAST_ENABLE:+ (coef ${ACTION_FORECAST_COEF:-0})}"
 echo "experiment  : ${EXP_NAME}"
 echo "pipeline log: ${RUN_DIR}/pipeline.log"
 echo "train log   : ${RUN_DIR}/train.log"

@@ -20,7 +20,7 @@ set -euo pipefail
 ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
 
 export ACTION_FORECAST_ENABLE=True
-export ACTION_FORECAST_COEF="${ACTION_FORECAST_COEF:-0.01}"      # weight of the forecast CE next to the PG loss
+export ACTION_FORECAST_COEF="${ACTION_FORECAST_COEF:-0.1}"       # weight of the forecast CE next to the PG loss (same as launch_tau2_cope_tmux.sh)
 export ACTION_FORECAST_K="${ACTION_FORECAST_K:-3}"               # horizon: forecast the next K actions
 export ACTION_FORECAST_GATE="${ACTION_FORECAST_GATE:-wins}"      # learn only from winning trajectories
 export ACTION_FORECAST_SKIP_INVALID="${ACTION_FORECAST_SKIP_INVALID:-True}"   # drop failed tool calls from the target

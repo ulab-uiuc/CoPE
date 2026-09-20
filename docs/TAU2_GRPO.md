@@ -16,7 +16,7 @@ own HTTP service, and the training side talks to it through a thin `requests` cl
 ```
 examples/train/AgentGym-RL/tau2_grpo_train.sh            plain GRPO
 examples/train/AgentGym-RL/tau2_grpo_forecast_train.sh   GRPO + action forecasting
-(or scripts/launch_tau2_grpo_tmux.sh, detached)
+scripts/launch_tau2_grpo_tmux.sh / scripts/launch_tau2_cope_tmux.sh   the same two, detached in tmux
 └─ scripts/run_tau2_pipeline.sh            one process tree, torn down on exit
    ├─ customer                             USERSIM_MODE=hosted: gpt-4o-mini via litellm
    │                                       USERSIM_MODE=local:  scripts/run_tau2_usersim_server.sh,
