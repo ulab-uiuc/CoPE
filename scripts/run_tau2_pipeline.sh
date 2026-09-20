@@ -2,7 +2,7 @@
 #
 # τ²-bench GRPO, end to end, in the foreground: customer -> env cluster -> training.
 # One process tree, one log directory, no scheduler. This is what
-# examples/train/AgentGym-RL/tau2_grpo_train.sh runs, and what
+# scripts/launch_tau2_grpo_tmux.sh runs, and what
 # scripts/launch_tau2_grpo_tmux.sh runs inside a tmux session.
 #
 #   PRESET=infopo bash scripts/run_tau2_pipeline.sh     # InfoPO's protocol (default)
@@ -144,7 +144,7 @@ TAU2_DOMAIN_SLUG="${TAU2_DOMAIN//+/-}"
 
 if [[ "${TAU2_PROMPT_VARIANT}" == "native" ]] && ! grep -q "_native_system_prompt" "${ROOT}/AgentGym/agentenv-tau2/agentenv_tau2/environment.py"; then
   echo "FATAL: this AgentGym checkout has no 'native' prompt variant. Update the submodule," \
-       "or apply the patch: git -C AgentGym apply ../patches/agentgym-tau2-native-protocol.patch" >&2
+       "(git submodule update --init AgentGym, or check out the tau2-native-protocol branch of PolarisDane/Agentgym#3)" >&2
   exit 1
 fi
 

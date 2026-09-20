@@ -14,9 +14,9 @@ already uses for webshop (whose server runs on Python 3.8): the environment runs
 own HTTP service, and the training side talks to it through a thin `requests` client.
 
 ```
-examples/train/AgentGym-RL/tau2_grpo_train.sh            plain GRPO
-examples/train/AgentGym-RL/tau2_grpo_forecast_train.sh   GRPO + action forecasting
-scripts/launch_tau2_grpo_tmux.sh / scripts/launch_tau2_cope_tmux.sh   the same two, detached in tmux
+scripts/launch_tau2_grpo_tmux.sh   plain GRPO (detached tmux session)
+scripts/launch_tau2_cope_tmux.sh   CoPE = GRPO + action forecasting (weight 0.1)
+scripts/run_tau2_pipeline.sh       the same pipeline in the foreground
 └─ scripts/run_tau2_pipeline.sh            one process tree, torn down on exit
    ├─ customer                             USERSIM_MODE=hosted: gpt-4o-mini via litellm
    │                                       USERSIM_MODE=local:  scripts/run_tau2_usersim_server.sh,
@@ -72,22 +72,22 @@ the import path.
 # InfoPO's training protocol -- three domains, tau2's native tool calling, gpt-4o-mini
 # customer -- with this repo's plain GRPO. Needs an OpenAI key in .secrets/openai_api_key.
 TRAIN_ENV=/path/to/conda/env MODEL_PATH=/path/to/Qwen2.5-7B-Instruct CUDA_VISIBLE_DEVICES=0,1,2,3 \
-  bash examples/train/AgentGym-RL/tau2_grpo_train.sh
+  bash scripts/launch_tau2_grpo_tmux.sh
 
 # the same, detached in tmux
 bash scripts/launch_tau2_grpo_tmux.sh
 
 # this repo's original retail / ReAct / dense-reward setup
-PRESET=repo bash examples/train/AgentGym-RL/tau2_grpo_train.sh
+PRESET=repo bash scripts/launch_tau2_grpo_tmux.sh
 
 # no API credit: a local Qwen customer on its own GPU (deltas only, not absolute scores)
-USERSIM_MODE=local USERSIM_GPU=4 CUDA_VISIBLE_DEVICES=0,1,2,3 bash examples/train/AgentGym-RL/tau2_grpo_train.sh
+USERSIM_MODE=local USERSIM_GPU=4 CUDA_VISIBLE_DEVICES=0,1,2,3 bash scripts/launch_tau2_grpo_tmux.sh
 
 # check prerequisites and print the resolved configuration without launching anything
-DRY_RUN=1 bash examples/train/AgentGym-RL/tau2_grpo_train.sh
+DRY_RUN=1 bash scripts/launch_tau2_grpo_tmux.sh
 
 # GRPO + the action-forecast auxiliary loss (same protocol; adds a forecast-SFT pass per step)
-bash examples/train/AgentGym-RL/tau2_grpo_forecast_train.sh
+bash scripts/launch_tau2_cope_tmux.sh
 ```
 
 Both entry points run `scripts/run_tau2_pipeline.sh`: it applies the tau2-bench patch,

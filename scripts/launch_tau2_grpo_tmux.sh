@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # τ²-bench GRPO in a detached tmux session -- the same pipeline as
-# examples/train/AgentGym-RL/tau2_grpo_train.sh, but it survives the terminal closing.
+# scripts/run_tau2_pipeline.sh, but it survives the terminal closing.
 # scripts/launch_tau2_cope_tmux.sh is this script with the action-forecast switch on.
 #
 #   bash scripts/launch_tau2_grpo_tmux.sh                     # InfoPO preset, plain GRPO
