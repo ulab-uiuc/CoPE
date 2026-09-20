@@ -549,6 +549,10 @@ class DataParallelPPOActor(BasePPOActor):
 
         coef = data.meta_info.get('action_forecast_coef',
                                   float(self.config.get('action_forecast_coef', 0.0)))
+        # This is a separate Adam step, so ``coef`` only rescales the gradient and Adam's
+        # normalization largely undoes it. ``action_forecast_lr_scale`` scales the learning
+        # rate of this step instead (1.0 = the policy lr), which does change its size.
+        af_lr_scale = float(self.config.get('action_forecast_lr_scale', 1.0))
         # metric namespace: 'action_forecast' (default) or 'sft_ablation' when the
         # RFT-style control reuses this same optimizer path (mutually exclusive).
         mp = data.meta_info.get('sft_metric_prefix', 'action_forecast')
@@ -610,7 +614,14 @@ class DataParallelPPOActor(BasePPOActor):
                     f'{mp}/valid_tokens': loss_mask.sum().detach().item(),
                 })
 
+            if af_lr_scale != 1.0:
+                _saved_lrs = [g['lr'] for g in self.actor_optimizer.param_groups]
+                for g in self.actor_optimizer.param_groups:
+                    g['lr'] = g['lr'] * af_lr_scale
             grad_norm = self._optimizer_step()
+            if af_lr_scale != 1.0:
+                for g, _lr in zip(self.actor_optimizer.param_groups, _saved_lrs):
+                    g['lr'] = _lr
             append_to_dict(metrics, {f'{mp}/grad_norm': grad_norm.detach().item()})
 
         self.actor_optimizer.zero_grad()

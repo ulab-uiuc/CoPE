@@ -76,6 +76,9 @@ ACTION_FORECAST_SEQ="${ACTION_FORECAST_SEQ:-separate}"
 # coefficient does not change that step count or size. Raise this to bound the number of
 # forecast steps (e.g. 512 -> one step per training step).
 SFT_MINI_BATCH_SIZE="${SFT_MINI_BATCH_SIZE:-${PPO_MINI_BATCH_SIZE}}"
+# Learning-rate multiplier for the forecast step (1.0 = the policy lr). Under Adam the loss
+# coefficient barely changes the step size; this does.
+ACTION_FORECAST_LR_SCALE="${ACTION_FORECAST_LR_SCALE:-1.0}"
 POLICY_LR="${POLICY_LR:-1e-6}"
 ROLLOUT_N="${ROLLOUT_N:-8}"
 TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-16}"
@@ -208,6 +211,7 @@ exec env \
     +actor_rollout_ref.actor.action_forecast_max_length="${ACTION_FORECAST_MAX_LENGTH}" \
     +actor_rollout_ref.actor.action_forecast_seq="${ACTION_FORECAST_SEQ}" \
     +actor_rollout_ref.actor.sft_mini_batch_size="${SFT_MINI_BATCH_SIZE}" \
+    +actor_rollout_ref.actor.action_forecast_lr_scale="${ACTION_FORECAST_LR_SCALE}" \
     actor_rollout_ref.actor.ppo_epochs="${PPO_EPOCHS}" \
     actor_rollout_ref.actor.optim.lr="${POLICY_LR}" \
     actor_rollout_ref.actor.ppo_mini_batch_size="${PPO_MINI_BATCH_SIZE}" \
