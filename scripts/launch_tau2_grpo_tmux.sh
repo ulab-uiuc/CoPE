@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # τ²-bench GRPO in a detached tmux session -- the same pipeline as
-# examples/train/AgentGym-RL/tau2_train.sh, but it survives the terminal closing.
+# examples/train/AgentGym-RL/tau2_grpo_train.sh, but it survives the terminal closing.
 #
 #   bash scripts/launch_tau2_grpo_tmux.sh                     # InfoPO preset
 #   PRESET=repo bash scripts/launch_tau2_grpo_tmux.sh         # this repo's retail setup

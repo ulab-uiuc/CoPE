@@ -48,6 +48,40 @@ def _to_chat_list(messages) -> List[Dict[str, str]]:
 _CODE_AS_ACTION_ENVS = ("appworld",)
 _FENCE_RE = re.compile(r"```(?:python)?\s*\n(.*?)```", re.S)
 
+# Native tool-calling envs (tau2 under the InfoPO-aligned protocol): an action turn is
+# either a ``<tool_call>{json}</tool_call>`` block or a plain message to the customer,
+# and the conversation is [system, user, assistant, tool|user, assistant, ...] rather
+# than the ReAct instr/ack/obs layout. The forecast target for a tool call is the call
+# itself as one JSON line (what the env executes); for a message it is the message on
+# one line, prefixed ``say:`` so the two kinds of action stay distinguishable.
+_NATIVE_TOOL_ENVS = ("tau2",)
+_TOOL_CALL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.S)
+_NATIVE_SAY_MAX_CHARS = 200
+
+
+def _native_action(assistant_text: str) -> str:
+    import json
+    text = assistant_text or ""
+    m = _TOOL_CALL_RE.search(text)
+    if m:
+        try:
+            call = json.loads(m.group(1))
+            return json.dumps({"name": call.get("name"), "arguments": call.get("arguments", {})},
+                              ensure_ascii=False, separators=(",", ":"))
+        except Exception:
+            return m.group(1).strip()
+    words = text.split()
+    if not words:
+        return ""
+    line = " ".join(words)
+    return "say: " + (line[:_NATIVE_SAY_MAX_CHARS] + "..." if len(line) > _NATIVE_SAY_MAX_CHARS else line)
+
+
+def _is_native_layout(convo: List[Dict[str, str]]) -> bool:
+    """A system-first conversation is the native tool-calling layout; the ReAct layout
+    always starts with the user instruction."""
+    return bool(convo) and convo[0].get('role') == 'system'
+
 
 def extract_action(assistant_text: str, env: str = "") -> str:
     """The bare action command from an assistant turn (drops the Thought).
@@ -64,6 +98,8 @@ def extract_action(assistant_text: str, env: str = "") -> str:
     if (env or "").lower() in _CODE_AS_ACTION_ENVS:
         blocks = _FENCE_RE.findall(assistant_text or "")
         return blocks[-1].strip() if blocks else ""
+    if (env or "").lower() in _NATIVE_TOOL_ENVS:
+        return _native_action(assistant_text)
     m = re.search(r"Action:\s*(.+)", assistant_text or "", re.S)
     if not m:
         lines = [l.strip() for l in (assistant_text or "").splitlines() if l.strip()]
@@ -82,6 +118,8 @@ def _action_turn_indices(convo: List[Dict[str, str]]) -> List[int]:
     The instruction+ack pair is skipped; action turns sit at conv idx 3, 5, 7, ...
     (assistant, each preceded by a user obs).
     """
+    if _is_native_layout(convo):
+        return [i for i in range(1, len(convo)) if convo[i]['role'] == 'assistant']
     return [i for i in range(3, len(convo), 2)
             if convo[i]['role'] == 'assistant' and convo[i - 1]['role'] == 'user']
 
@@ -107,11 +145,19 @@ INVALID_OUTCOME_PATTERNS = {
 }
 
 
+# tau2: the client answers an unparseable turn with "Invalid turn ..." and a failed
+# tool call with a result that starts with "Error" ("Error: Non-pending order cannot be
+# cancelled"); a customer message is never an invalid outcome.
+_TAU2_INVALID_PREFIXES = ("error", "invalid turn")
+
+
 def is_invalid_outcome(result_obs: str, env: str = "alfworld") -> bool:
     """True if the env feedback ``result_obs`` indicates the action was invalid /
     had no effect (illegal action, 'Nothing happens.', 'No known action...'). Per-env
     patterns; unknown env uses the common set."""
     low = (result_obs or "").lower()
+    if (env or "").lower() in _NATIVE_TOOL_ENVS:
+        return low.lstrip().startswith(_TAU2_INVALID_PREFIXES)
     for p in INVALID_OUTCOME_PATTERNS.get((env or "").lower(), _INVALID_COMMON):
         if p in low:
             return True
@@ -143,7 +189,7 @@ def build_action_targets(messages, k: int = 3, skip_invalid: bool = False,
         valid_seq = []
         for ai in action_idxs:
             res = (convo[ai + 1]['content'] if (ai + 1 < len(convo)
-                   and convo[ai + 1].get('role') == 'user') else '')
+                   and convo[ai + 1].get('role') in ('user', 'tool')) else '')
             valid_seq.append(not is_invalid_outcome(res, env))
     else:
         valid_seq = [True] * len(action_idxs)

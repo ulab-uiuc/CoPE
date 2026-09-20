@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
-# τ²-bench GRPO in one command, the way sciworld_train.sh is for SciWorld.
+# τ²-bench, plain GRPO (no action forecasting) in one command, the way sciworld_train.sh
+# is for SciWorld. The action-forecast variant is tau2_grpo_forecast_train.sh.
 #
-#   bash examples/train/AgentGym-RL/tau2_train.sh
+#   bash examples/train/AgentGym-RL/tau2_grpo_train.sh
 #
 # Unlike SciWorld, τ²-bench is not a single env server you start beforehand: the
 # environment runs as a cluster of Python 3.12 processes and the customer is an LLM.
@@ -27,6 +28,7 @@ set -euo pipefail
 ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
 
 export PRESET="${PRESET:-infopo}"
+export ACTION_FORECAST_ENABLE="${ACTION_FORECAST_ENABLE:-False}"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
 export TRAIN_GPUS="${TRAIN_GPUS:-${CUDA_VISIBLE_DEVICES}}"
 

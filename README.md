@@ -115,7 +115,8 @@ bash scripts/launch_sciworld_grpo_tmux.sh
 # tool calling, gpt-4o-mini customer) with plain GRPO; PRESET=repo is the retail/ReAct
 # setup. DRY_RUN=1 checks prerequisites and prints the configuration.
 TRAIN_ENV=<conda env> MODEL_PATH=<Qwen2.5-7B-Instruct snapshot> CUDA_VISIBLE_DEVICES=0,1,2,3 \
-  bash examples/train/AgentGym-RL/tau2_train.sh
+  bash examples/train/AgentGym-RL/tau2_grpo_train.sh            # plain GRPO
+  bash examples/train/AgentGym-RL/tau2_grpo_forecast_train.sh   # GRPO + action forecasting
 bash scripts/launch_tau2_grpo_tmux.sh          # same pipeline, detached in tmux
 
 # τ²-bench with InfoPO's published hyperparameters on slurm

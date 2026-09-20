@@ -2,7 +2,7 @@
 #
 # τ²-bench GRPO, end to end, in the foreground: customer -> env cluster -> training.
 # One process tree, one log directory, no scheduler. This is what
-# examples/train/AgentGym-RL/tau2_train.sh runs, and what
+# examples/train/AgentGym-RL/tau2_grpo_train.sh runs, and what
 # scripts/launch_tau2_grpo_tmux.sh runs inside a tmux session.
 #
 #   PRESET=infopo bash scripts/run_tau2_pipeline.sh     # InfoPO's protocol (default)
@@ -183,6 +183,11 @@ if [[ "${USERSIM_MODE}" == "hosted" ]]; then echo "customer   : ${USERSIM_LLM} (
 echo "domains    : ${TAU2_DOMAIN}/${TAU2_TASK_SPLIT}   file: $(basename "${TRAIN_FILE}")"
 echo "reward     : ${TAU2_REWARD_SHAPE}/${TAU2_REWARD_BASIS}   prompt=${TAU2_PROMPT_VARIANT}   native_tools=${NATIVE_TOOLS:-False}   user_temp=${TAU2_USER_TEMPERATURE}"
 echo "batch=${TRAIN_BATCH_SIZE} n=${ROLLOUT_N} mini=${PPO_MINI_BATCH_SIZE} rounds=${MAX_ROUNDS} epochs=${TOTAL_EPOCHS} lr=${POLICY_LR} kl=${USE_KL_LOSS}"
+if [[ "${ACTION_FORECAST_ENABLE:-False}" == "True" ]]; then
+  echo "forecast   : ON  coef=${ACTION_FORECAST_COEF:-0} k=${ACTION_FORECAST_K:-3} gate=${ACTION_FORECAST_GATE:-wins} skip_invalid=${ACTION_FORECAST_SKIP_INVALID:-True} group_norm=${ACTION_FORECAST_GROUP_NORM:-True} max_len=${ACTION_FORECAST_MAX_LENGTH:-4096}"
+else
+  echo "forecast   : off (plain GRPO)"
+fi
 echo "ckpt dir   : ${CKPT_DIR}"
 echo "run dir    : ${RUN_DIR}"
 
