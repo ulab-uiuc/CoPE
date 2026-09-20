@@ -74,7 +74,8 @@ versions that conflict with the training stack (WebShop is on 3.8, τ²-bench ne
 against a 3.10 trainer), so each is its own HTTP service that training reaches over
 `requests`.
 
-For τ²-bench specifically, see `docs/TAU2_GRPO.md`: the benchmark must be pinned to
+For τ²-bench specifically, `docs/TAU2_SETUP.md` is the step-by-step environment setup
+and `docs/TAU2_GRPO.md` the protocol and results: the benchmark must be pinned to
 commit `c5b2d22`, and evaluation goes through tau2's own CLI. Those two choices are what
 make numbers comparable to published baselines.
 

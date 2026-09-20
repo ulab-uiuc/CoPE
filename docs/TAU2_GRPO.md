@@ -30,6 +30,8 @@ scripts/run_tau2_pipeline.sh       the same pipeline in the foreground
 
 ## One-time setup
 
+(`docs/TAU2_SETUP.md` is the full, standalone version of this section.)
+
 ```bash
 # 1. AgentGym submodule (SSH is broken on this host; HTTPS resolves the pinned commit)
 git config submodule.AgentGym.url https://github.com/PolarisDane/Agentgym.git
