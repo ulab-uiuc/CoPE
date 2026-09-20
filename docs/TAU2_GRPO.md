@@ -200,6 +200,20 @@ read. The algorithm is also different by design: their published numbers are
 `info_grpo` with the intrinsic reward; the `infopo` preset here is plain GRPO with
 their hyperparameters and interface, i.e. the baseline their method is compared to.
 
+
+### Action forecasting (CoPE) under the native protocol
+
+`scripts/launch_tau2_cope_tmux.sh` is the GRPO launcher with the action-forecast auxiliary
+loss on (weight 0.1, `gate=wins`, `group_norm`, `skip_invalid`, K=3). The forecast helpers in
+`src/verl/agent_trainer/ppo/action_forecast.py` assumed the ReAct layout (action turns at
+odd indices, `Action:` lines, user-role observations); a system-first conversation is now
+treated as the native layout — every assistant turn is an action, a tool call is forecast as
+one JSON line, a customer message as `say: ...`, tool-role results feed `skip_invalid`, and a
+result starting with `Error`/`Invalid turn` marks a failed action. Measured on one step of
+the infopo preset (4× RTX PRO 6000, same batch as the GRPO run): 19/160 winning trajectories
+gave 243 forecast samples (mean horizon 2.7), forecast SFT loss 1.26, +239 s per step on top
+of the 222 s policy update, peak GPU memory 90.3 GB (plain GRPO: 90–94 GB).
+
 ## Model size: this rollout is TP=1 only
 
 `Qwen2.5-7B-Instruct` at `tensor_model_parallel_size=1` is the validated setup. Do not
