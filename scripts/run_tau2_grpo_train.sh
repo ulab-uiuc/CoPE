@@ -70,6 +70,12 @@ ACTION_FORECAST_GROUP_NORM="${ACTION_FORECAST_GROUP_NORM:-True}"
 ACTION_FORECAST_SUCCESS_THRESHOLD="${ACTION_FORECAST_SUCCESS_THRESHOLD:-0.5}"
 ACTION_FORECAST_MAX_LENGTH="${ACTION_FORECAST_MAX_LENGTH:-4096}"
 ACTION_FORECAST_SEQ="${ACTION_FORECAST_SEQ:-separate}"
+# The forecast pass is its own Adam step per mini-batch of forecast samples. With the
+# default (= PPO_MINI_BATCH_SIZE, 16 samples) a tau2 step of ~300 samples is ~19 optimizer
+# steps on the auxiliary objective against 2 on the policy gradient, and under Adam the
+# coefficient does not change that step count or size. Raise this to bound the number of
+# forecast steps (e.g. 512 -> one step per training step).
+SFT_MINI_BATCH_SIZE="${SFT_MINI_BATCH_SIZE:-${PPO_MINI_BATCH_SIZE}}"
 POLICY_LR="${POLICY_LR:-1e-6}"
 ROLLOUT_N="${ROLLOUT_N:-8}"
 TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-16}"
@@ -201,6 +207,7 @@ exec env \
     +actor_rollout_ref.actor.action_forecast_success_threshold="${ACTION_FORECAST_SUCCESS_THRESHOLD}" \
     +actor_rollout_ref.actor.action_forecast_max_length="${ACTION_FORECAST_MAX_LENGTH}" \
     +actor_rollout_ref.actor.action_forecast_seq="${ACTION_FORECAST_SEQ}" \
+    +actor_rollout_ref.actor.sft_mini_batch_size="${SFT_MINI_BATCH_SIZE}" \
     actor_rollout_ref.actor.ppo_epochs="${PPO_EPOCHS}" \
     actor_rollout_ref.actor.optim.lr="${POLICY_LR}" \
     actor_rollout_ref.actor.ppo_mini_batch_size="${PPO_MINI_BATCH_SIZE}" \

@@ -184,7 +184,7 @@ echo "domains    : ${TAU2_DOMAIN}/${TAU2_TASK_SPLIT}   file: $(basename "${TRAIN
 echo "reward     : ${TAU2_REWARD_SHAPE}/${TAU2_REWARD_BASIS}   prompt=${TAU2_PROMPT_VARIANT}   native_tools=${NATIVE_TOOLS:-False}   user_temp=${TAU2_USER_TEMPERATURE}"
 echo "batch=${TRAIN_BATCH_SIZE} n=${ROLLOUT_N} mini=${PPO_MINI_BATCH_SIZE} rounds=${MAX_ROUNDS} epochs=${TOTAL_EPOCHS} lr=${POLICY_LR} kl=${USE_KL_LOSS}"
 if [[ "${ACTION_FORECAST_ENABLE:-False}" == "True" ]]; then
-  echo "forecast   : ON  coef=${ACTION_FORECAST_COEF:-0} k=${ACTION_FORECAST_K:-3} gate=${ACTION_FORECAST_GATE:-wins} skip_invalid=${ACTION_FORECAST_SKIP_INVALID:-True} group_norm=${ACTION_FORECAST_GROUP_NORM:-True} max_len=${ACTION_FORECAST_MAX_LENGTH:-4096}"
+  echo "forecast   : ON  coef=${ACTION_FORECAST_COEF:-0} k=${ACTION_FORECAST_K:-3} gate=${ACTION_FORECAST_GATE:-wins} skip_invalid=${ACTION_FORECAST_SKIP_INVALID:-True} group_norm=${ACTION_FORECAST_GROUP_NORM:-True} max_len=${ACTION_FORECAST_MAX_LENGTH:-4096} sft_mini_batch=${SFT_MINI_BATCH_SIZE:-${PPO_MINI_BATCH_SIZE}}"
 else
   echo "forecast   : off (plain GRPO)"
 fi
