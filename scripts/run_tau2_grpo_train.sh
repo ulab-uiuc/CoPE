@@ -65,6 +65,9 @@ ACTION_FORECAST_ENABLE="${ACTION_FORECAST_ENABLE:-False}"
 ACTION_FORECAST_COEF="${ACTION_FORECAST_COEF:-0}"
 ACTION_FORECAST_K="${ACTION_FORECAST_K:-3}"
 ACTION_FORECAST_SKIP_INVALID="${ACTION_FORECAST_SKIP_INVALID:-True}"
+# wins = every winning trajectory; mixed = only the wins of GRPO groups that also have a
+# loss, i.e. where GRPO itself learns. In tau2 the all-win groups are mostly tasks that
+# need no tool call, and distilling them taught a policy to stop calling tools (v7).
 ACTION_FORECAST_GATE="${ACTION_FORECAST_GATE:-wins}"
 ACTION_FORECAST_GROUP_NORM="${ACTION_FORECAST_GROUP_NORM:-True}"
 ACTION_FORECAST_SUCCESS_THRESHOLD="${ACTION_FORECAST_SUCCESS_THRESHOLD:-0.5}"

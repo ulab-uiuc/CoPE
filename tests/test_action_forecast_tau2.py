@@ -87,18 +87,85 @@ def test_tau2_invalid_outcomes():
     assert not is_invalid_outcome("I don't have my order id.", env="tau2")
 
 
-def test_native_targets_skip_invalid_looks_past_the_failed_call():
+def test_failed_call_that_is_not_redone_is_kept():
+    # the cancel fails ("non-pending order") and is never retried: it told the agent the
+    # request is impossible, it is part of the winning path, so it stays in the target
     tg = build_action_targets(NATIVE, k=3, skip_invalid=True, env="tau2")
     by_turn = {t["prefix_end"] + 1: t["actions"] for t in tg}
-    # from the message turn (idx 4): next effective actions skip the failed cancel (idx 6)
-    assert by_turn[4] == ["Found you.\nWhich order?\n", CALL_DETAILS,
-                          "That order was delivered, so it cannot be cancelled."]
-    # without skip_invalid the failed call is part of the target
-    tg2 = build_action_targets(NATIVE, k=3, skip_invalid=False, env="tau2")
-    by2 = {t["prefix_end"] + 1: t["actions"] for t in tg2}
-    assert by2[6][0] == CALL_CANCEL
+    assert by_turn[4] == ["Found you.\nWhich order?\n", CALL_CANCEL, CALL_DETAILS]
     # every target's prefix ends on the observation the action answers
     assert all(NATIVE[t["prefix_end"]]["role"] in ("user", "tool") for t in tg)
+
+
+CALL_EMAIL_BAD = "<tool_call>\n{\"name\": \"find_user_id_by_email\", \"arguments\": {\"email\": \"a@b.c\"}}\n</tool_call>"
+CALL_EMAIL_OK = "<tool_call>\n{\"name\": \"find_user_id_by_email\", \"arguments\": {\"email\": \"a@b.co\"}}\n</tool_call>"
+GREETING = "Found you. What can I help you with today?"
+
+RETRY = [
+    {"role": "system", "content": "You are a customer service agent."},
+    {"role": "user", "content": "Hi, my email is a@b.c"},
+    {"role": "assistant", "content": CALL_EMAIL_BAD},                    # 2: fails, redone at 6
+    {"role": "tool", "content": "Error: User not found"},
+    {"role": "assistant", "content": "I could not find that email. Could you check it?"},
+    {"role": "user", "content": "Sorry, it is a@b.co"},
+    {"role": "assistant", "content": CALL_EMAIL_OK},                     # 6: succeeds
+    {"role": "tool", "content": "yara_muller_8652"},
+    {"role": "assistant", "content": GREETING},                          # 8
+    {"role": "user", "content": "Hm?"},
+    {"role": "assistant", "content": "  " + GREETING.replace(" ", "  ")},  # 10: repeat of 8
+    {"role": "user", "content": "Cancel #W1 please."},
+    {"role": "assistant", "content": CALL_CANCEL},                       # 12
+    {"role": "tool", "content": "{\"order_id\": \"#W1\", \"status\": \"cancelled\"}"},
+]
+
+
+def test_failed_call_redone_later_is_dropped():
+    tg = build_action_targets(RETRY, k=3, skip_invalid=True, env="tau2")
+    first = {t["prefix_end"] + 1: t for t in tg}[2]
+    # the failed lookup is skipped: the plan from turn 2 starts with the message, then
+    # the lookup that worked
+    assert first["actions"] == ["I could not find that email. Could you check it?", CALL_EMAIL_OK, GREETING]
+
+
+def test_repeated_message_is_dropped():
+    tg = build_action_targets(RETRY, k=3, skip_invalid=True, env="tau2")
+    from_greeting = {t["prefix_end"] + 1: t["actions"] for t in tg}[8]
+    # the word-for-word repeat at turn 10 is not a step of the plan
+    assert from_greeting == [GREETING, CALL_CANCEL]
+
+
+def test_without_skip_invalid_everything_stays():
+    tg = build_action_targets(RETRY, k=3, skip_invalid=False, env="tau2")
+    by = {t["prefix_end"] + 1: t["actions"] for t in tg}
+    assert by[2][0] == CALL_EMAIL_BAD
+    assert by[8] == [GREETING, "  " + GREETING.replace(" ", "  "), CALL_CANCEL]
+
+
+# ---- gate='mixed': only the wins of groups that also have a loss ---------------------------
+
+def test_mixed_gate_keeps_only_wins_of_mixed_groups():
+    from verl.agent_trainer.ppo.action_forecast import select_forecast_trajectories
+    group_ids = ["a", "a", "a", "b", "b", "b", "c", "c", "c"]
+    rewards = [1, 1, 1, 1, 0, 0, 0, 0, 0]       # a all-win, b mixed, c all-fail
+    keep, stats = select_forecast_trajectories(9, rewards, gate="mixed", group_ids=group_ids, group_norm=True)
+    assert keep == [False, False, False, True, False, False, False, False, False]
+    assert stats["action_forecast/n_groups_mixed"] == 1
+    assert stats["action_forecast/n_groups_allwin_skipped"] == 1
+    assert stats["action_forecast/n_wins_skipped"] == 3
+    # no mixed group -> nothing to distil, like GRPO has nothing to learn
+    keep2, _ = select_forecast_trajectories(6, [1, 1, 1, 0, 0, 0], gate="mixed", group_ids=list("aaabbb"))
+    assert not any(keep2)
+    # 'wins' is unchanged: every win
+    keep3, _ = select_forecast_trajectories(9, rewards, gate="wins", group_ids=group_ids, group_norm=True)
+    assert keep3 == [True, True, True, True, False, False, False, False, False]
+
+
+def test_mixed_gate_needs_group_ids_and_known_gates_only():
+    from verl.agent_trainer.ppo.action_forecast import select_forecast_trajectories
+    with pytest.raises(ValueError):
+        select_forecast_trajectories(3, [1, 0, 1], gate="mixed")
+    with pytest.raises(ValueError):
+        select_forecast_trajectories(3, [1, 0, 1], gate="best")
 
 
 def test_native_targets_need_the_turns_layout():

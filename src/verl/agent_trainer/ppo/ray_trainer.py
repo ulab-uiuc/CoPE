@@ -959,8 +959,11 @@ class RayPPOTrainer(object):
         # group_norm: give each group's successes equal total forecast-CE weight
         # (needs uid aligned to rollout_messages). Default off.
         group_norm = bool(actor_cfg.get('action_forecast_group_norm', False))
+        gate = str(actor_cfg.get('action_forecast_gate', 'wins'))
         group_ids = None
-        if group_norm:
+        # gate='mixed' keeps only the wins of groups that also have a loss, so it needs
+        # the GRPO group id as well
+        if group_norm or gate == 'mixed':
             _uid = batch.non_tensor_batch.get('uid', None)
             if _uid is not None:
                 group_ids = list(_uid)
@@ -970,7 +973,7 @@ class RayPPOTrainer(object):
             tokenizer=self.tokenizer,
             rewards=rewards,
             k=int(actor_cfg.get('action_forecast_k', 3)),
-            gate=str(actor_cfg.get('action_forecast_gate', 'wins')),
+            gate=gate,
             success_threshold=float(actor_cfg.get('action_forecast_success_threshold', 0.5)),
             max_length=int(actor_cfg.get('action_forecast_max_length', 4096)),
             max_samples_per_trajectory=actor_cfg.get('action_forecast_max_samples_per_traj', None),

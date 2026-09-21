@@ -168,6 +168,58 @@ INVALID_OUTCOME_PATTERNS = {
 # tool call with a result that starts with "Error" ("Error: Non-pending order cannot be
 # cancelled"); a customer message is never an invalid outcome.
 _TAU2_INVALID_PREFIXES = ("error", "invalid turn")
+_TOOL_NAME_RE = re.compile(r'"name"\s*:\s*"([^"]+)"')
+
+
+def _native_tool_name(action: str) -> Optional[str]:
+    """Tool name of a native call target (a literal ``<tool_call>...</tool_call>`` span),
+    None for a message. An unnamed call is identified by its whole text, so only an
+    identical later call can count as its redo."""
+    if not (action.startswith("<tool_call>") and action.endswith("</tool_call>")):
+        return None
+    m = _TOOL_NAME_RE.search(action)
+    return m.group(1) if m else action
+
+
+def _native_effective(convo, action_idxs, actions_seq, env: str) -> List[bool]:
+    """skip_invalid for the native tool-calling protocol: an action is dropped only if it
+    was wasted AND redone later -- the meaning skip_invalid has in the ReAct envs
+    ("Nothing happens.", then the corrected action).
+
+    * A tool call whose result is an Error is dropped only if the same tool is called
+      again later in the trajectory and that call succeeds. A failed call that is not
+      redone is kept: in tau2 it is usually informative ("user not found" -> look the user
+      up another way; "non-pending order cannot be cancelled" -> tell the customer), and it
+      is part of the path that won.
+    * A message is dropped only if it repeats an earlier message of the trajectory
+      word for word (whitespace-normalized).
+
+    The previous rule dropped every call that returned an Error and never a message. In
+    winning trajectories 27.9% of calls return an Error but only 37% of those are redone,
+    so it cut the tool-call share of the targets to 24.7% against the policy's 31.3%
+    (30.3% with no skipping, 29.5% with this rule), biasing the forecast toward talking.
+    """
+    names, failed = [], []
+    for ai, a in zip(action_idxs, actions_seq):
+        name = _native_tool_name(a or "")
+        res = (convo[ai + 1]['content'] if (ai + 1 < len(convo)
+               and convo[ai + 1].get('role') in ('user', 'tool')) else '')
+        names.append(name)
+        failed.append(name is not None and is_invalid_outcome(res, env))
+    valid: List[bool] = []
+    seen_messages = set()
+    for j, a in enumerate(actions_seq):
+        if not a:
+            valid.append(True)               # empty turns are filtered by the caller anyway
+        elif names[j] is not None:
+            redone = failed[j] and any(names[k] == names[j] and not failed[k]
+                                       for k in range(j + 1, len(actions_seq)))
+            valid.append(not redone)
+        else:
+            key = " ".join(a.split())
+            valid.append(key not in seen_messages)
+            seen_messages.add(key)
+    return valid
 
 
 def is_invalid_outcome(result_obs: str, env: str = "alfworld") -> bool:
@@ -197,13 +249,16 @@ def build_action_targets(messages, k: int = 3, skip_invalid: bool = False,
     ``skip_invalid`` (default off): drop actions whose RESULT observation signals an
     invalid / no-effect outcome (per-env, see is_invalid_outcome) — the forecast
     target then contains only the next-K *effective* actions (looking past the
-    skipped ones). ``env`` selects the invalid-outcome patterns.
+    skipped ones). ``env`` selects the invalid-outcome patterns. For the native
+    tool-calling envs the rule is trajectory-level: see _native_effective.
     """
     convo = _to_chat_list(messages)
     action_idxs = _action_turn_indices(convo)
     actions_seq = [extract_action(convo[ai]['content'], env=env) for ai in action_idxs]
 
-    if skip_invalid:
+    if skip_invalid and (env or "").lower() in _NATIVE_TOOL_ENVS:
+        valid_seq = _native_effective(convo, action_idxs, actions_seq, env)
+    elif skip_invalid:
         # per action turn, the RESULT obs = the next user message after it
         valid_seq = []
         for ai in action_idxs:
@@ -398,6 +453,46 @@ def encode_sft_sample(tokenizer, prefix, target_msgs, max_length: int = 4096,
     }
 
 
+ACTION_FORECAST_GATES = ("wins", "all", "mixed")
+
+
+def select_forecast_trajectories(n: int, rewards=None, gate: str = "wins",
+                                 success_threshold: float = 0.5, group_ids=None,
+                                 group_norm: bool = False):
+    """Which of ``n`` trajectories feed the forecast SFT, and per-step group counts.
+
+    'wins': reward > success_threshold. 'all': every trajectory (unless group_norm,
+    which distils successes only). 'mixed': the wins of groups that contain at least one
+    win and one loss -- the groups GRPO learns from. Returns (keep: List[bool], stats).
+    """
+    from collections import Counter
+    if gate not in ACTION_FORECAST_GATES:
+        raise ValueError(f"action_forecast gate must be one of {ACTION_FORECAST_GATES}, got {gate!r}")
+    succ = []
+    for i in range(n):
+        r = rewards[i] if (rewards is not None and i < len(rewards)) else 0.0
+        succ.append(r is not None and float(r) > success_threshold)
+    stats = {}
+    if gate == "mixed":
+        if group_ids is None:
+            raise ValueError("action_forecast gate='mixed' needs group_ids (the GRPO uid)")
+        wins, size = Counter(), Counter()
+        for i in range(n):
+            wins[group_ids[i]] += succ[i]
+            size[group_ids[i]] += 1
+        mixed = {g for g in size if 0 < wins[g] < size[g]}
+        keep = [succ[i] and group_ids[i] in mixed for i in range(n)]
+        stats = {"action_forecast/n_groups": float(len(size)),
+                 "action_forecast/n_groups_mixed": float(len(mixed)),
+                 "action_forecast/n_groups_allwin_skipped": float(sum(wins[g] == size[g] for g in size)),
+                 "action_forecast/n_wins_skipped": float(sum(succ) - sum(keep))}
+    elif gate == "wins" or group_norm:
+        keep = list(succ)
+    else:
+        keep = [True] * n
+    return keep, stats
+
+
 def build_action_forecast_batch(
     messages_list,
     tokenizer,
@@ -417,6 +512,14 @@ def build_action_forecast_batch(
 
     gate='wins' keeps only trajectories whose reward > success_threshold (needs
     ``rewards`` aligned to ``messages_list``); gate='all' keeps everything.
+    gate='mixed' keeps the wins of the GRPO groups that also have a loss (needs
+    ``group_ids``), i.e. only where GRPO itself has a learning signal: an all-win group
+    has zero advantage, so GRPO leaves it alone, while gate='wins' still distils it. In
+    tau2 the all-win groups are the tasks the policy already solves, mostly ones that
+    need no tool call (refusals, read-only questions): 8.5-21.5% of their targets are
+    calls against the policy's ~30%, and they grew from 23% to 63% of the forecast data
+    as the v7 run lost its tool use, down to a step with no mixed group at all where the
+    forecast SFT alone kept pushing. With 'mixed' the forecast is empty whenever GRPO is.
     See build_action_forecast_samples for the sample construction. Horizon is a
     fixed ``k``. Reuses collate_sft_samples for padding.
 
@@ -429,18 +532,16 @@ def build_action_forecast_batch(
     """
     from verl.agent_trainer.ppo.sft_common import collate_sft_samples
 
+    keep, group_stats = select_forecast_trajectories(
+        n=len(messages_list), rewards=rewards, gate=gate, success_threshold=success_threshold,
+        group_ids=group_ids, group_norm=group_norm)
+
     all_samples: List[Dict[str, object]] = []
     n_traj_used = 0
     n_traj_considered = 0
     traj_records = []   # (group_id, n_samples, start_idx) per distilled traj (group_norm)
     for i, messages in enumerate(messages_list):
-        if messages is None:
-            continue
-        r = rewards[i] if (rewards is not None and i < len(rewards)) else 0.0
-        succ = (r is not None and float(r) > success_threshold)
-        # keep decision: group_norm distills successes only (like gate='wins');
-        # it then reweights the kept ones.
-        if (group_norm or gate == "wins") and not succ:
+        if messages is None or not keep[i]:
             continue
         n_traj_considered += 1
         traj_samples = build_action_forecast_samples(
@@ -490,6 +591,8 @@ def build_action_forecast_batch(
             "action_forecast/n_traj_used": float(n_traj_used),
             "action_forecast/n_traj_considered": float(n_traj_considered),
             "action_forecast/gate_wins": 1.0 if gate == "wins" else 0.0,
+            "action_forecast/gate_mixed": 1.0 if gate == "mixed" else 0.0,
+            **group_stats,
             "action_forecast/k_mean": float(k_mean),
             "action_forecast/skip_invalid": 1.0 if skip_invalid else 0.0,
             "action_forecast/group_norm": 1.0 if group_norm else 0.0,
