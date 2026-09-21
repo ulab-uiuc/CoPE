@@ -70,19 +70,12 @@ ACTION_FORECAST_GROUP_NORM="${ACTION_FORECAST_GROUP_NORM:-True}"
 ACTION_FORECAST_SUCCESS_THRESHOLD="${ACTION_FORECAST_SUCCESS_THRESHOLD:-0.5}"
 ACTION_FORECAST_MAX_LENGTH="${ACTION_FORECAST_MAX_LENGTH:-4096}"
 ACTION_FORECAST_SEQ="${ACTION_FORECAST_SEQ:-separate}"
-# Target layout: 'list' = the K actions as K lines of one assistant turn (the original
-# construction, every other env); 'turns' = K assistant turns separated by a fixed user
-# prompt, loss on the assistant turns only. Under the native protocol the K-line list is
-# exactly Qwen2.5's parallel-tool-call rendering, which bled into policy turns (>= 2
-# <tool_call> blocks per turn, only the first executes); 'turns' gives every target the
-# shape of a policy turn. Recommended with NATIVE_TOOLS=True.
-ACTION_FORECAST_LAYOUT="${ACTION_FORECAST_LAYOUT:-list}"
-# Native-protocol action form in the target: 'executed' = re-serialized (compact JSON on
-# one line, 'say:' one-liner); 'verbatim' = the executed span cut out of the turn exactly
-# as the policy wrote it (needs LAYOUT=turns). The policy never writes the compact form,
-# and at the original dose it learned it and stopped calling tools; verbatim is the rule
-# the alfworld targets follow. Recommended: LAYOUT=turns NATIVE_FORM=verbatim.
-ACTION_FORECAST_NATIVE_FORM="${ACTION_FORECAST_NATIVE_FORM:-executed}"
+# Target layout: 'turns' = the K actions as K assistant turns separated by a fixed user
+# prompt, loss on the assistant turns only; 'list' = K lines of one assistant turn (the
+# ReAct envs' construction). tau2's targets are literal spans of the policy's own turns
+# (multi-line <tool_call> blocks, full messages), so they need 'turns'; 'list' is rejected
+# for native envs.
+ACTION_FORECAST_LAYOUT="${ACTION_FORECAST_LAYOUT:-turns}"
 # The forecast pass is its own Adam step per mini-batch of forecast samples. With the
 # default (= PPO_MINI_BATCH_SIZE, 16 samples) a tau2 step of ~300 samples is ~19 optimizer
 # steps on the auxiliary objective against 2 on the policy gradient, and under Adam the
@@ -224,7 +217,6 @@ exec env \
     +actor_rollout_ref.actor.action_forecast_max_length="${ACTION_FORECAST_MAX_LENGTH}" \
     +actor_rollout_ref.actor.action_forecast_seq="${ACTION_FORECAST_SEQ}" \
     +actor_rollout_ref.actor.action_forecast_layout="${ACTION_FORECAST_LAYOUT}" \
-    +actor_rollout_ref.actor.action_forecast_native_form="${ACTION_FORECAST_NATIVE_FORM}" \
     +actor_rollout_ref.actor.sft_mini_batch_size="${SFT_MINI_BATCH_SIZE}" \
     +actor_rollout_ref.actor.action_forecast_lr_scale="${ACTION_FORECAST_LR_SCALE}" \
     actor_rollout_ref.actor.ppo_epochs="${PPO_EPOCHS}" \
