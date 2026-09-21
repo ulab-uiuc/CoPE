@@ -348,7 +348,16 @@ def build_action_forecast_samples(
                 target_msgs.append({'role': 'assistant', 'content': a})
             s = encode_sft_sample(tokenizer, prefix, target_msgs,
                                   max_length=max_length, min_target_tokens=min_target_tokens,
-                                  assistant_only=True)
+                                  assistant_only=True, return_span_starts=True)
+            if s is not None:
+                # decision_kind marks the first token of each target turn -- the token that
+                # decides "tool call or message": 1 = call (<tool_call>), 2 = message.
+                import torch
+                kinds = torch.zeros(s['input_ids'].shape, dtype=torch.int8)
+                for st, a in zip(s.pop('span_starts'), items):
+                    if 0 <= st < kinds.numel():
+                        kinds[st] = 1 if _native_tool_name(a) is not None else 2
+                s['decision_kind'] = kinds
         else:
             prefix.append({'role': 'user', 'content': DEFAULT_ACTION_FORECAST_PROMPT.format(k=realized)})
             target_msgs = [{'role': 'assistant', 'content': "\n".join(items)}]
@@ -379,7 +388,8 @@ def _prefix_token_len(tokenizer, text: str, full_ids) -> int:
 
 
 def encode_sft_sample(tokenizer, prefix, target_msgs, max_length: int = 4096,
-                      min_target_tokens: int = 1, assistant_only: bool = False):
+                      min_target_tokens: int = 1, assistant_only: bool = False,
+                      return_span_starts: bool = False):
     """Tokenize a (prefix, target) chat pair into an SFT sample dict whose
     ``loss_mask`` covers ONLY the target (assistant) tokens — obs/prompt in the
     prefix contribute zero loss. Shared by action-forecast and the sft-ablation
@@ -417,6 +427,7 @@ def encode_sft_sample(tokenizer, prefix, target_msgs, max_length: int = 4096,
     input_ids = full_ids
     attention_mask = torch.ones_like(input_ids)
     loss_mask = torch.zeros_like(input_ids)
+    span_starts: List[int] = []   # first token of each assistant target turn, in order
     if assistant_only and len(target_msgs) > 1:
         for j, msg in enumerate(target_msgs):
             if msg.get('role') != 'assistant':
@@ -431,13 +442,16 @@ def encode_sft_sample(tokenizer, prefix, target_msgs, max_length: int = 4096,
             start = _prefix_token_len(tokenizer, start_text, full_ids)
             end = _prefix_token_len(tokenizer, end_text, full_ids)
             loss_mask[start:end] = 1
+            span_starts.append(start)
     else:
         loss_mask[prefix_len:] = 1
+        span_starts.append(prefix_len)
 
     target_len = int(loss_mask.sum().item())
     if target_len < min_target_tokens:
         return None
 
+    drop = 0
     if input_ids.size(0) > max_length:
         drop = input_ids.size(0) - max_length
         input_ids = input_ids[drop:]
@@ -446,14 +460,53 @@ def encode_sft_sample(tokenizer, prefix, target_msgs, max_length: int = 4096,
         if loss_mask.sum().item() < min_target_tokens:
             return None
 
-    return {
+    out = {
         'input_ids': input_ids,
         'attention_mask': attention_mask,
         'loss_mask': loss_mask,
     }
+    if return_span_starts:
+        # left truncation shifts every index; a start cut off by it becomes -1
+        out['span_starts'] = [s - drop if s - drop >= 0 else -1 for s in span_starts]
+    return out
 
 
 ACTION_FORECAST_GATES = ("wins", "all", "mixed")
+
+# Upper bound on the decision-token weight from call balancing (bounds the variance when
+# one kind is rare among the targets; exact neutrality is lost only when it binds).
+ACTION_FORECAST_BALANCE_WMAX = 5.0
+
+
+def call_balance_weights(p: float, q: float, w_max: float = ACTION_FORECAST_BALANCE_WMAX):
+    """Weights (w_call, w_msg) for the first token of call / message target turns that make
+    the forecast neutral on the call-vs-message decision.
+
+    ``p``: share of the policy's own turns that are tool calls (this step's rollouts);
+    ``q``: share of the (sample-weighted) forecast target turns that are tool calls.
+    The CE on the decision token pushes P(call) toward 1 on call targets and toward 0 on
+    message targets; the pushes cancel at the policy's current rate when
+    w_call * q * (1 - p) == w_msg * (1 - q) * p, which w_call = p/q, w_msg = (1-p)/(1-q)
+    satisfy. If one kind is absent from the targets the pushes cannot be balanced, and
+    the only neutral choice is not to train the decision token at all: (0, 0). The
+    content tokens of every target turn are still trained.
+    """
+    if q <= 0.0 or q >= 1.0:
+        return 0.0, 0.0
+    return min(p / q, w_max), min((1.0 - p) / (1.0 - q), w_max)
+
+
+def _policy_call_share(messages_list) -> Optional[float]:
+    """Share of assistant turns in this step's rollouts that contain a tool call."""
+    turns = calls = 0
+    for msgs in messages_list:
+        if msgs is None:
+            continue
+        for m in _to_chat_list(msgs):
+            if m.get('role') == 'assistant':
+                turns += 1
+                calls += _TOOL_CALL_SPAN_RE.search(m.get('content') or '') is not None
+    return (calls / turns) if turns else None
 
 
 def select_forecast_trajectories(n: int, rewards=None, gate: str = "wins",
@@ -507,8 +560,18 @@ def build_action_forecast_batch(
     group_ids=None,
     group_norm: bool = False,
     layout: str = "list",
+    balance_calls: bool = False,
 ):
     """Padded forecast-SFT batch over trajectories, with win/all gating.
+
+    ``balance_calls`` (native tool-calling envs, layout='turns'): reweight the first
+    token of each target turn -- the token that decides tool call vs message -- so the
+    forecast cannot move the policy's call rate (see call_balance_weights); every other
+    target token keeps weight 1. The call rate is then set by GRPO alone. Without it, the
+    wins that feed the forecast are call-poor in tau2 (refusal and guidance tasks are the
+    ones a weak policy wins; inside a mixed group the win calls less than the losses), the
+    forecast pulled the policy's call rate from ~30% to ~0 within 15 steps (v8), and once
+    no task had a mixed outcome GRPO had no signal left to recover it.
 
     gate='wins' keeps only trajectories whose reward > success_threshold (needs
     ``rewards`` aligned to ``messages_list``); gate='all' keeps everything.
@@ -579,6 +642,42 @@ def build_action_forecast_batch(
         for s, w in zip(all_samples, wts):
             s['loss_weight'] = w
 
+    # Call/message decision balancing (after group_norm, so q uses the final sample weights).
+    balance_meta = {}
+    if balance_calls:
+        import torch
+        p = _policy_call_share(messages_list)
+        n_c = n_m = 0.0
+        for s in all_samples:
+            dk = s.get('decision_kind')
+            if dk is None:
+                continue
+            lw = float(s.get('loss_weight', 1.0))
+            n_c += lw * int((dk == 1).sum())
+            n_m += lw * int((dk == 2).sum())
+        balance_meta["action_forecast/balance_calls"] = 1.0
+        if p is not None and (n_c + n_m) > 0:
+            q = n_c / (n_c + n_m)
+            w_c, w_m = call_balance_weights(p, q)
+            for s in all_samples:
+                dk = s.get('decision_kind')
+                if dk is None:
+                    continue
+                tw = torch.ones(dk.shape, dtype=torch.float32)
+                tw[dk == 1] = w_c
+                tw[dk == 2] = w_m
+                s['token_weight'] = tw
+            eff = (w_c * n_c) / (w_c * n_c + w_m * n_m) if (w_c * n_c + w_m * n_m) > 0 else float('nan')
+            balance_meta.update({
+                "action_forecast/policy_call_share": float(p),
+                "action_forecast/target_call_share": float(q),
+                "action_forecast/balanced_call_share": float(eff),
+                "action_forecast/w_call": float(w_c),
+                "action_forecast/w_msg": float(w_m),
+            })
+    for s in all_samples:
+        s.pop('decision_kind', None)
+
     batch = collate_sft_samples(
         samples=all_samples,
         pad_token_id=tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 0,
@@ -597,6 +696,7 @@ def build_action_forecast_batch(
             "action_forecast/skip_invalid": 1.0 if skip_invalid else 0.0,
             "action_forecast/group_norm": 1.0 if group_norm else 0.0,
             "action_forecast/layout_turns": 1.0 if layout == "turns" else 0.0,
+            **balance_meta,
             "action_forecast/k": float(k_mean)}
     if group_norm and traj_records:
         from collections import Counter as _Counter, defaultdict as _dd

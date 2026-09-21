@@ -228,3 +228,78 @@ def test_react_list_layout_is_unchanged(tok):
     spans = _masked_spans(s)
     assert len(spans) == 1
     assert tok.decode(spans[0]) == "go north\ntake key<|im_end|>\n"
+
+
+# ---- balance_calls: the forecast must not move the policy's call-vs-message rate ----------
+
+def test_call_balance_weights_are_neutral():
+    from verl.agent_trainer.ppo.action_forecast import call_balance_weights
+    for p, q in [(0.3, 0.14), (0.3, 0.5), (0.1, 0.4), (0.5, 0.5)]:
+        w_c, w_m = call_balance_weights(p, q, w_max=100)
+        # the decision-token pushes cancel at the policy's own rate
+        assert abs(w_c * q * (1 - p) - w_m * (1 - q) * p) < 1e-12
+        assert abs(w_c * q / (w_c * q + w_m * (1 - q)) - p) < 1e-12
+    # one kind absent from the targets: no weighting is neutral, so the decision is untrained
+    assert call_balance_weights(0.3, 0.0) == (0.0, 0.0)
+    assert call_balance_weights(0.3, 1.0) == (0.0, 0.0)
+    # a policy that never calls: call targets' decision untrained, messages' pushes are 0 anyway
+    w_c, w_m = call_balance_weights(0.0, 0.2)
+    assert w_c == 0.0 and abs(w_c * 0.2 * 1.0 - w_m * 0.8 * 0.0) < 1e-12
+    # weights are bounded
+    assert call_balance_weights(0.9, 0.01)[0] <= 5.0
+
+
+def test_decision_tokens_mark_the_first_token_of_each_target_turn(tok):
+    samples = build_action_forecast_samples(NATIVE, tok, k=3, skip_invalid=True, env="tau2", layout="turns")
+    call_id = tok.convert_tokens_to_ids("<tool_call>")
+    for s in samples:
+        dk = s["decision_kind"]
+        marks = [i for i in range(dk.numel()) if dk[i] > 0]
+        assert len(marks) == s["k_realized"]
+        for i in marks:
+            assert s["loss_mask"][i] == 1                         # a trained token ...
+            assert i == 0 or s["loss_mask"][i - 1] == 0           # ... that opens its span
+            assert (s["input_ids"][i].item() == call_id) == (dk[i].item() == 1)
+
+
+def test_balanced_batch_carries_the_policy_call_share(tok):
+    from verl.agent_trainer.ppo.action_forecast import (
+        ACTION_FORECAST_BALANCE_WMAX, build_action_forecast_batch)
+    msgs = [NATIVE, NATIVE, RETRY, RETRY]
+    batch, meta = build_action_forecast_batch(
+        msgs, tok, rewards=[1, 0, 1, 0], k=3, gate="mixed", skip_invalid=True, env="tau2",
+        group_ids=["a", "a", "b", "b"], group_norm=True, layout="turns", balance_calls=True)
+    p, q = meta["action_forecast/policy_call_share"], meta["action_forecast/target_call_share"]
+    assert 0 < p < 1 and 0 < q < 1
+    if max(meta["action_forecast/w_call"], meta["action_forecast/w_msg"]) < ACTION_FORECAST_BALANCE_WMAX:
+        assert abs(meta["action_forecast/balanced_call_share"] - p) < 1e-9
+    tw = batch["token_weight"]
+    assert tw.shape == batch["input_ids"].shape
+    # only decision tokens deviate from 1
+    off = (tw != 1.0) & (batch["loss_mask"] == 1)
+    assert off.sum() > 0 and off.sum() <= 3 * batch["input_ids"].size(0)
+    # without the flag nothing changes
+    batch2, meta2 = build_action_forecast_batch(
+        msgs, tok, rewards=[1, 0, 1, 0], k=3, gate="mixed", skip_invalid=True, env="tau2",
+        group_ids=["a", "a", "b", "b"], group_norm=True, layout="turns")
+    assert "token_weight" not in batch2 and "action_forecast/w_call" not in meta2
+
+
+def test_token_weight_scales_the_numerator_only():
+    import torch
+    from verl.agent_trainer.ppo.sft_common import compute_sft_loss_from_logits
+    torch.manual_seed(0)
+    logits = torch.randn(2, 6, 11)
+    labels = torch.randint(0, 11, (2, 6))
+    mask = torch.tensor([[0, 0, 1, 1, 1, 0], [0, 1, 1, 0, 0, 0]])
+    tw = torch.ones(2, 6)
+    tw[0, 2] = 3.0
+    tw[1, 1] = 0.0
+    base = compute_sft_loss_from_logits(logits, labels, mask)
+    same = compute_sft_loss_from_logits(logits, labels, mask, token_weight=torch.ones(2, 6))
+    assert torch.allclose(base, same)
+    ce = torch.nn.functional.cross_entropy(logits[:, :-1].reshape(-1, 11), labels[:, 1:].reshape(-1), reduction="none").view(2, 5)
+    m = mask[:, 1:].bool()
+    want = (ce * tw[:, 1:] * m).sum() / m.sum()
+    got = compute_sft_loss_from_logits(logits, labels, mask, token_weight=tw)
+    assert torch.allclose(got, want)

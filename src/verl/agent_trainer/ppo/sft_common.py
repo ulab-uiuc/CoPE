@@ -77,6 +77,15 @@ def collate_sft_samples(
     if any('loss_weight' in s for s in samples):
         out['loss_weight'] = torch.tensor(
             [float(s.get('loss_weight', 1.0)) for s in samples], dtype=torch.float32)
+    # optional per-token loss weight (action-forecast call/message decision balancing);
+    # padding and samples without one get weight 1, which is inert under loss_mask
+    if any('token_weight' in s for s in samples):
+        tw = torch.ones((bsz, target_len), dtype=torch.float32)
+        for i, s in enumerate(samples):
+            if 'token_weight' in s:
+                L = min(s['token_weight'].size(0), target_len)
+                tw[i, :L] = s['token_weight'][:L].to(torch.float32)
+        out['token_weight'] = tw
     return out
 
 
@@ -85,6 +94,7 @@ def compute_sft_loss_from_logits(
     labels: torch.Tensor,
     loss_mask: torch.Tensor,
     sample_weight: torch.Tensor = None,
+    token_weight: torch.Tensor = None,
 ) -> torch.Tensor:
     """Next-token CE loss on the positions marked by ``loss_mask``.
 
@@ -102,6 +112,10 @@ def compute_sft_loss_from_logits(
     gradient cosine vs. unweighted = 1.000000). Scaling an already-averaged loss by
     ``sample_weight.mean()`` has the opposite failure: correct at one sample per
     micro-batch, but it averages the weights away as soon as there are more.
+
+    ``token_weight`` (optional, shape [B, T] aligned with ``input_ids``) scales individual
+    target tokens, numerator only like ``sample_weight``. The action forecast uses it to
+    reweight the first token of each target turn -- the call-vs-message decision.
     """
     shift_logits = logits[:, :-1, :].contiguous()
     shift_labels = labels[:, 1:].contiguous()
@@ -116,6 +130,9 @@ def compute_sft_loss_from_logits(
     tok_loss = loss_fn(shift_logits.view(-1, vocab), ignored_labels.view(-1))
     tok_loss = tok_loss.view(shift_labels.shape)   # ignored positions already 0
     denom = shift_mask.sum().clamp(min=1.0)
+    if token_weight is not None:
+        # position t predicts token t+1, so the weight of token t+1 applies at t
+        tok_loss = tok_loss * token_weight[:, 1:].contiguous().to(tok_loss.dtype)
     if sample_weight is None:
         return tok_loss.sum() / denom
     w = sample_weight.to(tok_loss.dtype).view(-1, 1)   # [B, 1] broadcasts over T

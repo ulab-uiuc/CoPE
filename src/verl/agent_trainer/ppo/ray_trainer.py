@@ -985,6 +985,9 @@ class RayPPOTrainer(object):
             # assistant turns, the layout that does not double as Qwen's parallel-call
             # format under tau2's native protocol (see action_forecast.py).
             layout=str(actor_cfg.get('action_forecast_layout', 'list')),
+            # reweight the call-vs-message decision token of each target turn so the
+            # forecast cannot move the policy's tool-call rate (see action_forecast.py)
+            balance_calls=bool(actor_cfg.get('action_forecast_balance_calls', False)),
         )
         if assembled is None:
             return None, meta

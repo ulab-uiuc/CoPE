@@ -79,6 +79,10 @@ ACTION_FORECAST_SEQ="${ACTION_FORECAST_SEQ:-separate}"
 # (multi-line <tool_call> blocks, full messages), so they need 'turns'; 'list' is rejected
 # for native envs.
 ACTION_FORECAST_LAYOUT="${ACTION_FORECAST_LAYOUT:-turns}"
+# Reweight the first token of each target turn (tool call vs message) so the forecast cannot
+# move the policy's tool-call rate; GRPO alone sets it. Without it the call-poor wins a weak
+# policy produces (refusals, guidance) pulled the call rate from ~30% to ~0 (v8).
+ACTION_FORECAST_BALANCE_CALLS="${ACTION_FORECAST_BALANCE_CALLS:-False}"
 # The forecast pass is its own Adam step per mini-batch of forecast samples. With the
 # default (= PPO_MINI_BATCH_SIZE, 16 samples) a tau2 step of ~300 samples is ~19 optimizer
 # steps on the auxiliary objective against 2 on the policy gradient, and under Adam the
@@ -220,6 +224,7 @@ exec env \
     +actor_rollout_ref.actor.action_forecast_max_length="${ACTION_FORECAST_MAX_LENGTH}" \
     +actor_rollout_ref.actor.action_forecast_seq="${ACTION_FORECAST_SEQ}" \
     +actor_rollout_ref.actor.action_forecast_layout="${ACTION_FORECAST_LAYOUT}" \
+    +actor_rollout_ref.actor.action_forecast_balance_calls="${ACTION_FORECAST_BALANCE_CALLS}" \
     +actor_rollout_ref.actor.sft_mini_batch_size="${SFT_MINI_BATCH_SIZE}" \
     +actor_rollout_ref.actor.action_forecast_lr_scale="${ACTION_FORECAST_LR_SCALE}" \
     actor_rollout_ref.actor.ppo_epochs="${PPO_EPOCHS}" \
