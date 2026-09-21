@@ -28,6 +28,25 @@ DEFAULT_ACTION_FORECAST_PROMPT = (
     "task, starting with the action you take right now, one action per line."
 )
 
+# ``layout='turns'``: the K actions are K assistant turns separated by a fixed user
+# prompt, instead of K lines of one assistant message (``layout='list'``, the default
+# and the original construction). Under tau2's native protocol the K-line list is
+# byte-for-byte Qwen2.5's rendering of several parallel tool calls in ONE turn, so the
+# forecast SFT reinforced "continue after </tool_call> with another call" and that bled
+# into policy turns: turns with >= 2 <tool_call> blocks went 0.9% -> 3.1% over steps 5-10
+# of the v4 run while the client executes only the first, and the reward never sees the
+# rest. As K turns every target has the exact shape of a policy turn -- one call or one
+# message, then <|im_end|> -- and the loss covers the assistant turns only; the filler
+# user turns are constants. What each turn predicts is unchanged: action j conditioned
+# on the prefix and actions < j, without their results.
+DEFAULT_ACTION_FORECAST_TURNS_PROMPT = (
+    "Plan ahead: give the next {k} actions you will take to make progress on the task, "
+    "one action per reply, starting with the action you take right now. Reply with the "
+    "action only."
+)
+ACTION_FORECAST_NEXT_PROMPT = "Next action?"
+ACTION_FORECAST_LAYOUTS = ("list", "turns")
+
 
 def _to_chat_list(messages) -> List[Dict[str, str]]:
     out: List[Dict[str, str]] = []
@@ -233,15 +252,19 @@ def build_action_forecast_samples(
     min_target_tokens: int = 1,
     skip_invalid: bool = False,
     env: str = "alfworld",
+    layout: str = "list",
 ) -> List[Dict[str, "object"]]:
     """Per-step teacher-forced forecast-SFT samples for one trajectory.
 
     Target: the realized next-K bare action commands (grounded — does NOT
     contaminate the rollout).
 
-    Construction: prefix = convo[:obs_t+1] + a synthetic user prompt ("list the next
-    K ..."); target = assistant(bare newline list, +EOS). Standalone — distinct from
-    the rollout turn.
+    Construction (``layout='list'``): prefix = convo[:obs_t+1] + a synthetic user
+    prompt ("list the next K ..."); target = assistant(bare newline list, +EOS).
+    Standalone — distinct from the rollout turn.
+    ``layout='turns'``: the same prefix + a "one action per reply" prompt; target = K
+    assistant turns, each one action (+EOS), separated by the fixed user prompt
+    ACTION_FORECAST_NEXT_PROMPT; loss on the assistant turns only.
 
     Horizon: fixed ``k``. The prompt is aligned to the REALIZED
     length after end-of-episode clamping (never over-promises). Each returned
@@ -250,6 +273,8 @@ def build_action_forecast_samples(
     Loss mask covers only the target tokens. Returns dicts with torch tensors.
     """
     k = int(k)
+    if layout not in ACTION_FORECAST_LAYOUTS:
+        raise ValueError(f"action_forecast layout must be one of {ACTION_FORECAST_LAYOUTS}, got {layout!r}")
 
     convo = _to_chat_list(messages)
     samples: List[Dict[str, object]] = []
@@ -260,10 +285,21 @@ def build_action_forecast_samples(
         realized = len(items)
         # synthetic prompt formatted with the REALIZED count
         prefix = list(convo[:tgt['prefix_end'] + 1])
-        prefix.append({'role': 'user', 'content': DEFAULT_ACTION_FORECAST_PROMPT.format(k=realized)})
-        target_msgs = [{'role': 'assistant', 'content': "\n".join(items)}]
-        s = encode_sft_sample(tokenizer, prefix, target_msgs,
-                              max_length=max_length, min_target_tokens=min_target_tokens)
+        if layout == "turns":
+            prefix.append({'role': 'user', 'content': DEFAULT_ACTION_FORECAST_TURNS_PROMPT.format(k=realized)})
+            target_msgs = []
+            for j, a in enumerate(items):
+                if j:
+                    target_msgs.append({'role': 'user', 'content': ACTION_FORECAST_NEXT_PROMPT})
+                target_msgs.append({'role': 'assistant', 'content': a})
+            s = encode_sft_sample(tokenizer, prefix, target_msgs,
+                                  max_length=max_length, min_target_tokens=min_target_tokens,
+                                  assistant_only=True)
+        else:
+            prefix.append({'role': 'user', 'content': DEFAULT_ACTION_FORECAST_PROMPT.format(k=realized)})
+            target_msgs = [{'role': 'assistant', 'content': "\n".join(items)}]
+            s = encode_sft_sample(tokenizer, prefix, target_msgs,
+                                  max_length=max_length, min_target_tokens=min_target_tokens)
         if s is not None:
             s['k_realized'] = realized
             samples.append(s)
@@ -271,13 +307,36 @@ def build_action_forecast_samples(
     return samples
 
 
+def _prefix_token_len(tokenizer, text: str, full_ids) -> int:
+    """Number of leading tokens of ``full_ids`` that render ``text``, a text prefix of
+    the sequence ``full_ids`` encodes. Exact when the boundary sits on a special token
+    (the chat template's <|im_end|>/<|im_start|> markers); otherwise the longest common
+    token prefix, the same fallback encode_sft_sample uses for the prompt boundary."""
+    ids = tokenizer(text, add_special_tokens=False, return_tensors='pt')['input_ids'][0]
+    n = min(ids.size(0), full_ids.size(0))
+    if n == ids.size(0) and bool((full_ids[:n] == ids).all()):
+        return n
+    common = 0
+    for i in range(n):
+        if ids[i].item() != full_ids[i].item():
+            break
+        common = i + 1
+    return common
+
+
 def encode_sft_sample(tokenizer, prefix, target_msgs, max_length: int = 4096,
-                      min_target_tokens: int = 1):
+                      min_target_tokens: int = 1, assistant_only: bool = False):
     """Tokenize a (prefix, target) chat pair into an SFT sample dict whose
     ``loss_mask`` covers ONLY the target (assistant) tokens — obs/prompt in the
     prefix contribute zero loss. Shared by action-forecast and the sft-ablation
     control so both use byte-identical encoding (clean apples-to-apples). Returns
-    None if templating fails or the target is shorter than ``min_target_tokens``."""
+    None if templating fails or the target is shorter than ``min_target_tokens``.
+
+    ``assistant_only``: when ``target_msgs`` holds several turns (assistant, user,
+    assistant, ...), put loss on the assistant turns only; the user turns in the target
+    are the fixed filler prompts of the ``turns`` layout and are never trained. Each
+    assistant span is bounded by the token length of the rendering up to it (with the
+    generation prompt) and through it, both text prefixes of the full rendering."""
     import torch
     try:
         prefix_text = tokenizer.apply_chat_template(
@@ -301,14 +360,29 @@ def encode_sft_sample(tokenizer, prefix, target_msgs, max_length: int = 4096,
             common = i + 1
         prefix_len = common
 
-    target_len = full_ids.size(0) - prefix_len
-    if target_len < min_target_tokens:
-        return None
-
     input_ids = full_ids
     attention_mask = torch.ones_like(input_ids)
     loss_mask = torch.zeros_like(input_ids)
-    loss_mask[prefix_len:] = 1
+    if assistant_only and len(target_msgs) > 1:
+        for j, msg in enumerate(target_msgs):
+            if msg.get('role') != 'assistant':
+                continue
+            try:
+                start_text = tokenizer.apply_chat_template(
+                    prefix + list(target_msgs[:j]), tokenize=False, add_generation_prompt=True)
+                end_text = tokenizer.apply_chat_template(
+                    prefix + list(target_msgs[:j + 1]), tokenize=False, add_generation_prompt=False)
+            except Exception:  # pragma: no cover - tokenizer template missing
+                return None
+            start = _prefix_token_len(tokenizer, start_text, full_ids)
+            end = _prefix_token_len(tokenizer, end_text, full_ids)
+            loss_mask[start:end] = 1
+    else:
+        loss_mask[prefix_len:] = 1
+
+    target_len = int(loss_mask.sum().item())
+    if target_len < min_target_tokens:
+        return None
 
     if input_ids.size(0) > max_length:
         drop = input_ids.size(0) - max_length
@@ -338,6 +412,7 @@ def build_action_forecast_batch(
     env: str = "alfworld",
     group_ids=None,
     group_norm: bool = False,
+    layout: str = "list",
 ):
     """Padded forecast-SFT batch over trajectories, with win/all gating.
 
@@ -372,7 +447,7 @@ def build_action_forecast_batch(
         traj_samples = build_action_forecast_samples(
             messages=messages, tokenizer=tokenizer, k=k,
             max_length=max_length,
-            skip_invalid=skip_invalid, env=env)
+            skip_invalid=skip_invalid, env=env, layout=layout)
         if max_samples_per_trajectory is not None and len(traj_samples) > max_samples_per_trajectory:
             traj_samples = traj_samples[-max_samples_per_trajectory:]
         if traj_samples:
@@ -419,6 +494,7 @@ def build_action_forecast_batch(
             "action_forecast/k_mean": float(k_mean),
             "action_forecast/skip_invalid": 1.0 if skip_invalid else 0.0,
             "action_forecast/group_norm": 1.0 if group_norm else 0.0,
+            "action_forecast/layout_turns": 1.0 if layout == "turns" else 0.0,
             "action_forecast/k": float(k_mean)}
     if group_norm and traj_records:
         from collections import Counter as _Counter, defaultdict as _dd

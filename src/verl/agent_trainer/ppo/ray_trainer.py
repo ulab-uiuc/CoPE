@@ -978,6 +978,10 @@ class RayPPOTrainer(object):
             env=env_name,
             group_ids=group_ids,
             group_norm=group_norm,
+            # 'list' (default): K actions as K lines of one assistant turn; 'turns': K
+            # assistant turns, the layout that does not double as Qwen's parallel-call
+            # format under tau2's native protocol (see action_forecast.py).
+            layout=str(actor_cfg.get('action_forecast_layout', 'list')),
         )
         if assembled is None:
             return None, meta

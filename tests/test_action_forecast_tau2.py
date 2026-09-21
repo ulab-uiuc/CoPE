@@ -81,3 +81,74 @@ def test_native_targets_skip_invalid_looks_past_the_failed_call():
     assert _call(by2[6][0])["name"] == "cancel_pending_order"
     # every target's prefix ends on the observation the action answers
     assert all(NATIVE[t["prefix_end"]]["role"] in ("user", "tool") for t in tg)
+
+
+# ---- layout='turns': K assistant turns, loss on the assistant turns only ----------------
+
+import os  # noqa: E402
+
+import pytest  # noqa: E402
+
+from verl.agent_trainer.ppo.action_forecast import (  # noqa: E402
+    ACTION_FORECAST_NEXT_PROMPT, build_action_forecast_samples)
+
+
+@pytest.fixture(scope="module")
+def tok():
+    path = os.environ.get("COPE_TEST_TOKENIZER")
+    if not path:
+        pytest.skip("set COPE_TEST_TOKENIZER to a local Qwen2.5 snapshot")
+    transformers = pytest.importorskip("transformers")
+    return transformers.AutoTokenizer.from_pretrained(path)
+
+
+def test_unknown_layout_is_rejected():
+    with pytest.raises(ValueError):
+        build_action_forecast_samples(NATIVE, tokenizer=None, k=3, env="tau2", layout="lines")
+
+
+def _masked_spans(sample):
+    spans, cur = [], []
+    for t, m in zip(sample["input_ids"].tolist(), sample["loss_mask"].tolist()):
+        if m:
+            cur.append(t)
+        elif cur:
+            spans.append(cur)
+            cur = []
+    if cur:
+        spans.append(cur)
+    return spans
+
+
+def test_turns_layout_is_k_policy_shaped_turns(tok):
+    samples = build_action_forecast_samples(NATIVE, tok, k=3, skip_invalid=True, env="tau2", layout="turns")
+    assert samples
+    s = samples[0]                       # forecast from the first action turn
+    spans = _masked_spans(s)
+    assert len(spans) == s["k_realized"] == 3
+    expected = build_action_targets(NATIVE, k=3, skip_invalid=True, env="tau2")[0]["actions"]
+    for span, action in zip(spans, expected):
+        text = tok.decode(span)
+        # each trained span is exactly one action, closed like a policy turn
+        assert text.startswith(action), text
+        assert text.rstrip("\n").endswith("<|im_end|>"), text
+        assert "\n" not in text.rstrip("\n").replace("<|im_end|>", "")
+    # the filler prompt between turns is never trained, and the K actions are separate turns
+    ids = s["input_ids"].tolist()
+    filler = tok.encode(ACTION_FORECAST_NEXT_PROMPT, add_special_tokens=False)
+    hits = [i for i in range(len(ids) - len(filler) + 1) if ids[i:i + len(filler)] == filler]
+    assert len(hits) == 2
+    for i in hits:
+        assert not any(s["loss_mask"][i:i + len(filler)].tolist())
+    full = tok.decode(ids)
+    assert full.count("<|im_start|>assistant") == 3 + sum(1 for m in NATIVE[:2] if m["role"] == "assistant")
+
+
+def test_list_layout_is_unchanged(tok):
+    s = build_action_forecast_samples(NATIVE, tok, k=3, skip_invalid=True, env="tau2")[0]
+    spans = _masked_spans(s)
+    assert len(spans) == 1                # one assistant turn, K lines
+    text = tok.decode(spans[0])
+    # skip_invalid looks past the failed cancel: find_user, say, get_order_details
+    assert text.count("<tool_call>") == 2 and text.count("say:") == 1
+    assert text.rstrip("\n").endswith("<|im_end|>")
