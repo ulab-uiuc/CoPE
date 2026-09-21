@@ -982,6 +982,9 @@ class RayPPOTrainer(object):
             # assistant turns, the layout that does not double as Qwen's parallel-call
             # format under tau2's native protocol (see action_forecast.py).
             layout=str(actor_cfg.get('action_forecast_layout', 'list')),
+            # native envs only: 'executed' re-serializes the action (compact JSON / say:
+            # line); 'verbatim' cuts the executed span out of the turn unchanged.
+            native_form=str(actor_cfg.get('action_forecast_native_form', 'executed')),
         )
         if assembled is None:
             return None, meta

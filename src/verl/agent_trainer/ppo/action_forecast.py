@@ -80,10 +80,31 @@ _NATIVE_TOOL_ENVS = ("tau2",)
 _TOOL_CALL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.S)
 _NATIVE_SAY_MAX_CHARS = 200
 
+# How a native-protocol action is written into the forecast target.
+#   'executed' (the original construction): the call RE-SERIALIZED on one line as compact
+#     JSON, a message as one ``say:`` line cut at 200 chars. That is a surface form the
+#     policy never writes (100% of its calls are the template's newline-wrapped, space-
+#     separated JSON), and at the original forecast dose the policy learned it instead:
+#     compact-JSON calls went 0% -> 46% -> 96.5% of policy calls over steps 5-7 of the v5
+#     run (41% at step 6 of v2), with the entropy spike and the tool-call share falling
+#     27% -> 16%.
+#   'verbatim': the executed part of the turn as a LITERAL SUBSTRING of what the policy
+#     generated, never re-encoded -- the first <tool_call>...</tool_call> block exactly as
+#     written (prose around it dropped, as alfworld drops the Thought), or the message
+#     text unchanged. The rule the alfworld targets always followed (``go to shelf 1`` is
+#     cut out of the turn, not rewritten). Multi-line, so it needs layout='turns'.
+ACTION_FORECAST_NATIVE_FORMS = ("executed", "verbatim")
+_TOOL_CALL_SPAN_RE = re.compile(r"<tool_call>.*?</tool_call>", re.S)
 
-def _native_action(assistant_text: str) -> str:
+
+def _native_action(assistant_text: str, form: str = "executed") -> str:
     import json
     text = assistant_text or ""
+    if form == "verbatim":
+        if not text.strip():
+            return ""
+        span = _TOOL_CALL_SPAN_RE.search(text)
+        return span.group(0) if span else text
     m = _TOOL_CALL_RE.search(text)
     if m:
         try:
@@ -106,7 +127,7 @@ def _is_native_layout(convo: List[Dict[str, str]]) -> bool:
     return bool(convo) and convo[0].get('role') == 'system'
 
 
-def extract_action(assistant_text: str, env: str = "") -> str:
+def extract_action(assistant_text: str, env: str = "", form: str = "executed") -> str:
     """The bare action command from an assistant turn (drops the Thought).
 
     Take the first non-empty line after ``Action:``; fall back to the last
@@ -116,13 +137,14 @@ def extract_action(assistant_text: str, env: str = "") -> str:
     For ``env`` in _CODE_AS_ACTION_ENVS, return the last fenced code block instead,
     matching how AppWorldEnvClient.step extracts the code it executes, so the
     forecast target is exactly the action that ran. ``env=""`` (the default) keeps
-    the original behaviour for every other env.
+    the original behaviour for every other env. ``form`` only applies to the native
+    tool-calling envs (see ACTION_FORECAST_NATIVE_FORMS).
     """
     if (env or "").lower() in _CODE_AS_ACTION_ENVS:
         blocks = _FENCE_RE.findall(assistant_text or "")
         return blocks[-1].strip() if blocks else ""
     if (env or "").lower() in _NATIVE_TOOL_ENVS:
-        return _native_action(assistant_text)
+        return _native_action(assistant_text, form=form)
     m = re.search(r"Action:\s*(.+)", assistant_text or "", re.S)
     if not m:
         lines = [l.strip() for l in (assistant_text or "").splitlines() if l.strip()]
@@ -188,7 +210,7 @@ def is_invalid_outcome(result_obs: str, env: str = "alfworld") -> bool:
 
 
 def build_action_targets(messages, k: int = 3, skip_invalid: bool = False,
-                       env: str = "alfworld") -> List[Dict[str, object]]:
+                       env: str = "alfworld", form: str = "executed") -> List[Dict[str, object]]:
     """For each action turn t, return per-step targets.
 
     {'prefix_end': idx, 'actions': [a_t..a_{t+K-1}], 'action_turns': [..], 'src_turn': n}
@@ -205,7 +227,7 @@ def build_action_targets(messages, k: int = 3, skip_invalid: bool = False,
     """
     convo = _to_chat_list(messages)
     action_idxs = _action_turn_indices(convo)
-    actions_seq = [extract_action(convo[ai]['content'], env=env) for ai in action_idxs]
+    actions_seq = [extract_action(convo[ai]['content'], env=env, form=form) for ai in action_idxs]
 
     if skip_invalid:
         # per action turn, the RESULT obs = the next user message after it
@@ -253,6 +275,7 @@ def build_action_forecast_samples(
     skip_invalid: bool = False,
     env: str = "alfworld",
     layout: str = "list",
+    native_form: str = "executed",
 ) -> List[Dict[str, "object"]]:
     """Per-step teacher-forced forecast-SFT samples for one trajectory.
 
@@ -275,10 +298,14 @@ def build_action_forecast_samples(
     k = int(k)
     if layout not in ACTION_FORECAST_LAYOUTS:
         raise ValueError(f"action_forecast layout must be one of {ACTION_FORECAST_LAYOUTS}, got {layout!r}")
+    if native_form not in ACTION_FORECAST_NATIVE_FORMS:
+        raise ValueError(f"action_forecast native_form must be one of {ACTION_FORECAST_NATIVE_FORMS}, got {native_form!r}")
+    if native_form == "verbatim" and layout != "turns":
+        raise ValueError("native_form='verbatim' targets are multi-line and need layout='turns'")
 
     convo = _to_chat_list(messages)
     samples: List[Dict[str, object]] = []
-    for tgt in build_action_targets(messages, k=k, skip_invalid=skip_invalid, env=env):
+    for tgt in build_action_targets(messages, k=k, skip_invalid=skip_invalid, env=env, form=native_form):
         items = (tgt.get('actions') or [])[:k]   # clamp to what's available (<= k)
         if not items:
             continue
@@ -413,6 +440,7 @@ def build_action_forecast_batch(
     group_ids=None,
     group_norm: bool = False,
     layout: str = "list",
+    native_form: str = "executed",
 ):
     """Padded forecast-SFT batch over trajectories, with win/all gating.
 
@@ -447,7 +475,7 @@ def build_action_forecast_batch(
         traj_samples = build_action_forecast_samples(
             messages=messages, tokenizer=tokenizer, k=k,
             max_length=max_length,
-            skip_invalid=skip_invalid, env=env, layout=layout)
+            skip_invalid=skip_invalid, env=env, layout=layout, native_form=native_form)
         if max_samples_per_trajectory is not None and len(traj_samples) > max_samples_per_trajectory:
             traj_samples = traj_samples[-max_samples_per_trajectory:]
         if traj_samples:
@@ -458,7 +486,7 @@ def build_action_forecast_batch(
             gid = group_ids[i] if (group_ids is not None and i < len(group_ids)) else i
             # the trajectory's realized action sequence, for the group_unique_frac metric
             _cv = _to_chat_list(messages)
-            seq_key = tuple(extract_action(_cv[a].get("content", ""), env=env) for a in _action_turn_indices(_cv))
+            seq_key = tuple(extract_action(_cv[a].get("content", ""), env=env, form=native_form) for a in _action_turn_indices(_cv))
             traj_records.append((gid, len(traj_samples), _start, seq_key))
 
     # Group-weight normalization: each GROUP contributes equally (total weight 1 after
@@ -495,6 +523,7 @@ def build_action_forecast_batch(
             "action_forecast/skip_invalid": 1.0 if skip_invalid else 0.0,
             "action_forecast/group_norm": 1.0 if group_norm else 0.0,
             "action_forecast/layout_turns": 1.0 if layout == "turns" else 0.0,
+            "action_forecast/native_verbatim": 1.0 if native_form == "verbatim" else 0.0,
             "action_forecast/k": float(k_mean)}
     if group_norm and traj_records:
         from collections import Counter as _Counter, defaultdict as _dd

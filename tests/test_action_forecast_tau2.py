@@ -152,3 +152,38 @@ def test_list_layout_is_unchanged(tok):
     # skip_invalid looks past the failed cancel: find_user, say, get_order_details
     assert text.count("<tool_call>") == 2 and text.count("say:") == 1
     assert text.rstrip("\n").endswith("<|im_end|>")
+
+
+# ---- native_form='verbatim': the executed span, cut out of the turn unchanged -----------
+
+def test_verbatim_form_is_a_literal_substring_of_the_turn():
+    # tool-call turn: the <tool_call> block exactly as written (newlines, spaced JSON),
+    # the prose before it dropped like alfworld drops the Thought
+    out = extract_action(NATIVE[2]["content"], env="tau2", form="verbatim")
+    assert out == "<tool_call>\n{\"name\": \"find_user_id_by_email\", \"arguments\": {\"email\": \"a@b.c\"}}\n</tool_call>"
+    assert out in NATIVE[2]["content"]
+    # message turn: the text unchanged -- no say: prefix, no truncation, no reflow
+    assert extract_action(NATIVE[4]["content"], env="tau2", form="verbatim") == NATIVE[4]["content"]
+    assert extract_action("  \n", env="tau2", form="verbatim") == ""
+    # the executed form is untouched
+    assert _call(extract_action(NATIVE[2]["content"], env="tau2"))["name"] == "find_user_id_by_email"
+
+
+def test_verbatim_form_needs_the_turns_layout():
+    with pytest.raises(ValueError):
+        build_action_forecast_samples(NATIVE, tokenizer=None, k=3, env="tau2", layout="list", native_form="verbatim")
+
+
+def test_verbatim_turns_train_exactly_the_policy_spans(tok):
+    samples = build_action_forecast_samples(NATIVE, tok, k=3, skip_invalid=True, env="tau2",
+                                            layout="turns", native_form="verbatim")
+    s = samples[0]
+    spans = _masked_spans(s)
+    expected = build_action_targets(NATIVE, k=3, skip_invalid=True, env="tau2", form="verbatim")[0]["actions"]
+    assert len(spans) == len(expected) == 3
+    for span, action in zip(spans, expected):
+        text = tok.decode(span)
+        assert text == action + "<|im_end|>\n", (text, action)
+    # the target tokens are the policy's own tokens: encoding the literal span gives the same ids
+    for span, action in zip(spans, expected):
+        assert span[:-2] == tok.encode(action, add_special_tokens=False)

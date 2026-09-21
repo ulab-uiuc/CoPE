@@ -77,6 +77,12 @@ ACTION_FORECAST_SEQ="${ACTION_FORECAST_SEQ:-separate}"
 # <tool_call> blocks per turn, only the first executes); 'turns' gives every target the
 # shape of a policy turn. Recommended with NATIVE_TOOLS=True.
 ACTION_FORECAST_LAYOUT="${ACTION_FORECAST_LAYOUT:-list}"
+# Native-protocol action form in the target: 'executed' = re-serialized (compact JSON on
+# one line, 'say:' one-liner); 'verbatim' = the executed span cut out of the turn exactly
+# as the policy wrote it (needs LAYOUT=turns). The policy never writes the compact form,
+# and at the original dose it learned it and stopped calling tools; verbatim is the rule
+# the alfworld targets follow. Recommended: LAYOUT=turns NATIVE_FORM=verbatim.
+ACTION_FORECAST_NATIVE_FORM="${ACTION_FORECAST_NATIVE_FORM:-executed}"
 # The forecast pass is its own Adam step per mini-batch of forecast samples. With the
 # default (= PPO_MINI_BATCH_SIZE, 16 samples) a tau2 step of ~300 samples is ~19 optimizer
 # steps on the auxiliary objective against 2 on the policy gradient, and under Adam the
@@ -218,6 +224,7 @@ exec env \
     +actor_rollout_ref.actor.action_forecast_max_length="${ACTION_FORECAST_MAX_LENGTH}" \
     +actor_rollout_ref.actor.action_forecast_seq="${ACTION_FORECAST_SEQ}" \
     +actor_rollout_ref.actor.action_forecast_layout="${ACTION_FORECAST_LAYOUT}" \
+    +actor_rollout_ref.actor.action_forecast_native_form="${ACTION_FORECAST_NATIVE_FORM}" \
     +actor_rollout_ref.actor.sft_mini_batch_size="${SFT_MINI_BATCH_SIZE}" \
     +actor_rollout_ref.actor.action_forecast_lr_scale="${ACTION_FORECAST_LR_SCALE}" \
     actor_rollout_ref.actor.ppo_epochs="${PPO_EPOCHS}" \
