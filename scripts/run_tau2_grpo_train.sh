@@ -83,6 +83,19 @@ ACTION_FORECAST_LAYOUT="${ACTION_FORECAST_LAYOUT:-turns}"
 # move the policy's tool-call rate; GRPO alone sets it. Without it the call-poor wins a weak
 # policy produces (refusals, guidance) pulled the call rate from ~30% to ~0 (v8).
 ACTION_FORECAST_BALANCE_CALLS="${ACTION_FORECAST_BALANCE_CALLS:-False}"
+# What the forecast predicts: 'all' = every action (tool calls and messages); 'calls' = the
+# policy's tool calls only, never its messages. v10 ('all', balanced) drifted from acting to
+# announcing from step 6 and lost its tool calls from step 11; with 'calls' the forecast
+# trains only which tool and which arguments (use with ACTION_FORECAST_BALANCE_CALLS=True).
+ACTION_FORECAST_TARGETS="${ACTION_FORECAST_TARGETS:-all}"
+# Give every target action the same weight in its sample's loss, whatever its length. Under
+# the plain token mean a tool call (median 33 tokens in v10) weighs a third of a message
+# (median 111): 26.7% of v10's target turns were calls but only 9.9% of its trained tokens.
+ACTION_FORECAST_LENGTH_NORM="${ACTION_FORECAST_LENGTH_NORM:-False}"
+# Skip a forecast sample whose K target actions contain no tool call, as invalid. Talk-only
+# wins (the customer fixed the phone themselves, or a refusal) otherwise teach the policy to
+# talk instead of act, in every domain.
+ACTION_FORECAST_SKIP_NO_CALL="${ACTION_FORECAST_SKIP_NO_CALL:-False}"
 # The forecast pass is its own Adam step per mini-batch of forecast samples. With the
 # default (= PPO_MINI_BATCH_SIZE, 16 samples) a tau2 step of ~300 samples is ~19 optimizer
 # steps on the auxiliary objective against 2 on the policy gradient, and under Adam the
@@ -225,6 +238,9 @@ exec env \
     +actor_rollout_ref.actor.action_forecast_seq="${ACTION_FORECAST_SEQ}" \
     +actor_rollout_ref.actor.action_forecast_layout="${ACTION_FORECAST_LAYOUT}" \
     +actor_rollout_ref.actor.action_forecast_balance_calls="${ACTION_FORECAST_BALANCE_CALLS}" \
+    +actor_rollout_ref.actor.action_forecast_targets="${ACTION_FORECAST_TARGETS}" \
+    +actor_rollout_ref.actor.action_forecast_length_norm="${ACTION_FORECAST_LENGTH_NORM}" \
+    +actor_rollout_ref.actor.action_forecast_skip_no_call="${ACTION_FORECAST_SKIP_NO_CALL}" \
     +actor_rollout_ref.actor.sft_mini_batch_size="${SFT_MINI_BATCH_SIZE}" \
     +actor_rollout_ref.actor.action_forecast_lr_scale="${ACTION_FORECAST_LR_SCALE}" \
     actor_rollout_ref.actor.ppo_epochs="${PPO_EPOCHS}" \

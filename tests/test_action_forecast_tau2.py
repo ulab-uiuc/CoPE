@@ -303,3 +303,247 @@ def test_token_weight_scales_the_numerator_only():
     want = (ce * tw[:, 1:] * m).sum() / m.sum()
     got = compute_sft_loss_from_logits(logits, labels, mask, token_weight=tw)
     assert torch.allclose(got, want)
+
+
+# ---- targets='calls': forecast the policy's tool calls only, never its messages ------------
+
+def test_calls_targets_are_the_next_tool_calls_from_each_call_turn():
+    tg = build_action_targets(NATIVE, k=3, skip_invalid=True, env="tau2", targets="calls")
+    by = {t["prefix_end"] + 1: t for t in tg}
+    # anchors are the tool-call turns only (2, 6, 8); the messages at 4 and 10 are skipped
+    assert sorted(by) == [2, 6, 8]
+    assert by[2]["actions"] == [CALL_1, CALL_CANCEL, CALL_DETAILS]
+    assert by[6]["actions"] == [CALL_CANCEL, CALL_DETAILS]      # the failed cancel is not redone: kept
+    assert by[8]["actions"] == [CALL_DETAILS]
+    # action_turns index the action turns the targets come from, as for 'all'
+    assert by[2]["action_turns"] == [0, 2, 3]
+
+
+def test_calls_targets_keep_the_redo_rule():
+    tg = build_action_targets(RETRY, k=3, skip_invalid=True, env="tau2", targets="calls")
+    by = {t["prefix_end"] + 1: t["actions"] for t in tg}
+    assert sorted(by) == [2, 6, 12]
+    # the failed lookup redone at turn 6 is dropped, messages never appear
+    assert by[2] == [CALL_EMAIL_OK, CALL_CANCEL]
+    assert by[12] == [CALL_CANCEL]
+    raw = {t["prefix_end"] + 1: t["actions"] for t in
+           build_action_targets(RETRY, k=3, skip_invalid=False, env="tau2", targets="calls")}
+    assert raw[2] == [CALL_EMAIL_BAD, CALL_EMAIL_OK, CALL_CANCEL]
+    # 'all' is unchanged by the new option
+    assert build_action_targets(RETRY, k=3, skip_invalid=True, env="tau2") == \
+        build_action_targets(RETRY, k=3, skip_invalid=True, env="tau2", targets="all")
+
+
+def test_calls_targets_need_a_native_env_and_known_values():
+    with pytest.raises(ValueError):
+        build_action_targets(REACT, k=2, env="alfworld", targets="calls")
+    with pytest.raises(ValueError):
+        build_action_targets(NATIVE, k=2, env="tau2", targets="messages")
+
+
+def test_calls_samples_train_only_call_spans(tok):
+    from verl.agent_trainer.ppo.action_forecast import (
+        ACTION_FORECAST_NEXT_CALL_PROMPT, DEFAULT_ACTION_FORECAST_CALLS_PROMPT)
+    samples = build_action_forecast_samples(NATIVE, tok, k=3, skip_invalid=True, env="tau2",
+                                            layout="turns", targets="calls")
+    expected = [t["actions"] for t in build_action_targets(NATIVE, k=3, skip_invalid=True, env="tau2", targets="calls")]
+    assert len(samples) == len(expected) == 3
+    call_id = tok.convert_tokens_to_ids("<tool_call>")
+    for s, acts in zip(samples, expected):
+        spans = _masked_spans(s)
+        assert [tok.decode(sp) for sp in spans] == [a + "<|im_end|>\n" for a in acts]
+        text = tok.decode(s["input_ids"].tolist())
+        assert DEFAULT_ACTION_FORECAST_CALLS_PROMPT.format(k=len(acts)) in text
+        assert text.count(ACTION_FORECAST_NEXT_CALL_PROMPT) == len(acts) - 1
+        dk = s["decision_kind"]
+        marks = [i for i in range(dk.numel()) if dk[i] > 0]
+        assert len(marks) == len(acts)
+        assert all(dk[i].item() == 1 and s["input_ids"][i].item() == call_id for i in marks)
+
+
+def test_calls_batch_leaves_the_decision_token_untrained(tok):
+    from verl.agent_trainer.ppo.action_forecast import build_action_forecast_batch
+    msgs = [NATIVE, NATIVE, RETRY, RETRY]
+    kw = dict(rewards=[1, 0, 1, 0], k=3, gate="mixed", skip_invalid=True, env="tau2",
+              group_ids=["a", "a", "b", "b"], group_norm=True, layout="turns", balance_calls=True)
+    batch, meta = build_action_forecast_batch(msgs, tok, targets="calls", **kw)
+    assert meta["action_forecast/targets_calls"] == 1.0
+    assert meta["action_forecast/target_call_share"] == 1.0
+    assert meta["action_forecast/w_call"] == 0.0 and meta["action_forecast/w_msg"] == 0.0
+    tw, lm, ids = batch["token_weight"], batch["loss_mask"], batch["input_ids"]
+    call_id = tok.convert_tokens_to_ids("<tool_call>")
+    opens = (ids == call_id) & (lm == 1)
+    assert opens.sum() > 0 and (tw[opens] == 0).all()           # the call decision is never trained
+    assert ((tw != 1.0) & (lm == 1)).sum() == opens.sum()        # ... and nothing else is reweighted
+    _, meta_all = build_action_forecast_batch(msgs, tok, **kw)
+    assert meta_all["action_forecast/targets_calls"] == 0.0
+
+
+# ---- length_norm: every target action weighs the same in its sample's loss ----------------
+
+SPANS = [(1, 3), (5, 10), (11, 14)]            # trained spans of 2, 5 and 3 tokens
+LM = [0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 0]
+
+
+def test_action_length_weights_give_each_action_the_same_weight():
+    import torch
+    from verl.agent_trainer.ppo.action_forecast import action_length_weights
+    lm = torch.tensor(LM)
+    tw = action_length_weights(lm)
+    n_tok = int(lm.sum())
+    for a, b in SPANS:
+        assert float(tw[a:b].sum()) == pytest.approx(n_tok / len(SPANS))
+    assert float(tw[lm.bool()].sum()) == pytest.approx(n_tok)      # the token-mean scale is kept
+    assert (tw[~lm.bool()] == 1).all()
+
+
+def test_length_normalised_loss_is_the_mean_over_actions():
+    import torch
+    from verl.agent_trainer.ppo.action_forecast import action_length_weights
+    from verl.agent_trainer.ppo.sft_common import compute_sft_loss_from_logits
+    torch.manual_seed(0)
+    T, V = len(LM), 13
+    logits, labels = torch.randn(1, T, V), torch.randint(0, V, (1, T))
+    lm = torch.tensor([LM])
+    got = compute_sft_loss_from_logits(logits, labels, lm, token_weight=action_length_weights(lm[0]).unsqueeze(0))
+    ce = torch.nn.functional.cross_entropy(logits[0, :-1], labels[0, 1:], reduction="none")   # ce[t-1] scores token t
+    want = torch.stack([ce[a - 1:b - 1].mean() for a, b in SPANS]).mean()
+    assert torch.allclose(got, want)
+
+
+def _turn_spans(batch, i, tok):
+    from verl.agent_trainer.ppo.action_forecast import _trained_spans
+    call_id = tok.convert_tokens_to_ids("<tool_call>")
+    return [(a, b, batch["input_ids"][i, a].item() == call_id) for a, b in _trained_spans(batch["loss_mask"][i])]
+
+
+def test_length_norm_batch_weighs_every_turn_the_same(tok):
+    from verl.agent_trainer.ppo.action_forecast import build_action_forecast_batch
+    msgs = [NATIVE, NATIVE, RETRY, RETRY]
+    kw = dict(rewards=[1, 0, 1, 0], k=3, gate="mixed", skip_invalid=True, env="tau2",
+              group_ids=["a", "a", "b", "b"], group_norm=True, layout="turns")
+    b0, m0 = build_action_forecast_batch(msgs, tok, **kw)
+    b1, m1 = build_action_forecast_batch(msgs, tok, length_norm=True, **kw)
+    assert m1["action_forecast/length_norm"] == 1.0 and "action_forecast/length_norm" not in m0
+    assert "token_weight" not in b0
+    want_num = want_den = 0.0
+    for i in range(b1["input_ids"].size(0)):
+        spans, n_tok = _turn_spans(b1, i, tok), int(b1["loss_mask"][i].sum())
+        for a, b, _ in spans:
+            assert float(b1["token_weight"][i, a:b].sum()) == pytest.approx(n_tok / len(spans), rel=1e-5)
+        lw = float(b1["loss_weight"][i])
+        want_num += lw * sum(c for _, _, c in spans) / len(spans); want_den += lw
+    # with every turn weighing the same, the calls' share of the loss is their share of the turns
+    assert m1["action_forecast/call_weight_share"] == pytest.approx(want_num / want_den, rel=1e-4)
+    assert m1["action_forecast/call_token_share"] == pytest.approx(m0["action_forecast/call_token_share"])
+
+
+def test_length_norm_keeps_the_call_balance_neutral(tok):
+    from verl.agent_trainer.ppo.action_forecast import ACTION_FORECAST_BALANCE_WMAX, build_action_forecast_batch
+    msgs = [NATIVE, NATIVE, RETRY, RETRY]
+    batch, meta = build_action_forecast_batch(
+        msgs, tok, rewards=[1, 0, 1, 0], k=3, gate="mixed", skip_invalid=True, env="tau2",
+        group_ids=["a", "a", "b", "b"], group_norm=True, layout="turns", balance_calls=True, length_norm=True)
+    p = meta["action_forecast/policy_call_share"]
+    num = den = 0.0
+    for i in range(batch["input_ids"].size(0)):
+        lw, n_tok = float(batch["loss_weight"][i]), float(batch["loss_mask"][i, 1:].sum())
+        for a, _, is_call in _turn_spans(batch, i, tok):
+            w = lw * float(batch["token_weight"][i, a]) / n_tok       # the decision token's weight in the loss
+            den += w; num += w * is_call
+    assert max(meta["action_forecast/w_call"], meta["action_forecast/w_msg"]) < ACTION_FORECAST_BALANCE_WMAX
+    assert num / den == pytest.approx(p, rel=1e-6)
+
+
+# ---- skip_no_call: a forecast sample whose targets hold no tool call is skipped -------------
+
+TALK = [
+    {"role": "system", "content": "You are a customer service agent."},
+    {"role": "user", "content": "My phone has no signal."},
+    {"role": "assistant", "content": "Please turn airplane mode off and tell me what the status bar shows."},
+    {"role": "user", "content": "Airplane mode is off now and I have signal."},
+    {"role": "assistant", "content": "Great, you are all set."},
+    {"role": "user", "content": "Thanks! ###STOP###"},
+]
+
+
+def test_skip_no_call_drops_message_only_targets(tok):
+    from verl.agent_trainer.ppo.action_forecast import _native_tool_name
+    kw = dict(k=3, skip_invalid=True, env="tau2", layout="turns")
+    full = build_action_forecast_samples(NATIVE, tok, **kw)
+    stats = {}
+    kept = build_action_forecast_samples(NATIVE, tok, skip_no_call=True, stats=stats, **kw)
+    targets = build_action_targets(NATIVE, k=3, skip_invalid=True, env="tau2")
+    n_without_call = sum(not any(_native_tool_name(a) is not None for a in t["actions"]) for t in targets)
+    assert n_without_call >= 1                                   # the closing message of NATIVE
+    assert len(kept) == len(full) - n_without_call and stats["skipped_no_call"] == n_without_call
+    call_id = tok.convert_tokens_to_ids("<tool_call>")
+    for s in kept:                                              # every kept sample trains a call
+        assert any(s["input_ids"][i].item() == call_id for i in range(s["decision_kind"].numel()) if s["decision_kind"][i] == 1)
+
+
+def test_skip_no_call_drops_a_talk_only_trajectory(tok):
+    kw = dict(k=3, skip_invalid=True, env="tau2", layout="turns")
+    assert build_action_forecast_samples(TALK, tok, **kw)
+    assert build_action_forecast_samples(TALK, tok, skip_no_call=True, **kw) == []
+
+
+def test_skip_no_call_needs_a_native_env(tok):
+    with pytest.raises(ValueError):
+        build_action_forecast_samples(REACT, tok, k=2, env="alfworld", skip_no_call=True)
+
+
+def test_skip_no_call_batch_counts_and_keeps_the_balance_neutral(tok):
+    from verl.agent_trainer.ppo.action_forecast import ACTION_FORECAST_BALANCE_WMAX, build_action_forecast_batch
+    msgs = [NATIVE, TALK, RETRY, TALK]
+    kw = dict(rewards=[1, 1, 1, 1], k=3, gate="wins", skip_invalid=True, env="tau2",
+              group_ids=["a", "b", "c", "d"], group_norm=True, layout="turns", balance_calls=True, length_norm=True)
+    b0, m0 = build_action_forecast_batch(msgs, tok, **kw)
+    b1, m1 = build_action_forecast_batch(msgs, tok, skip_no_call=True, **kw)
+    assert m0["action_forecast/skip_no_call"] == 0.0 and m0["action_forecast/n_skipped_no_call"] == 0.0
+    assert m1["action_forecast/skip_no_call"] == 1.0 and m1["action_forecast/n_skipped_no_call"] > 0
+    assert m1["action_forecast/n_samples"] == m0["action_forecast/n_samples"] - m1["action_forecast/n_skipped_no_call"]
+    assert m1["action_forecast/n_traj_used"] == 2                 # the talk-only trajectories give nothing
+    p = m1["action_forecast/policy_call_share"]
+    num = den = 0.0
+    for i in range(b1["input_ids"].size(0)):
+        lw, n_tok = float(b1["loss_weight"][i]), float(b1["loss_mask"][i, 1:].sum())
+        for a, _, is_call in _turn_spans(b1, i, tok):
+            w = lw * float(b1["token_weight"][i, a]) / n_tok
+            den += w; num += w * is_call
+    assert max(m1["action_forecast/w_call"], m1["action_forecast/w_msg"]) < ACTION_FORECAST_BALANCE_WMAX
+    assert num / den == pytest.approx(p, rel=1e-6)
+
+
+# ---- a call to a tool the agent does not have is never a target, nor counts as a call -------
+
+CALL_STATUS = "<tool_call>\n{\"name\": \"check_status_bar\", \"arguments\": {}}\n</tool_call>"
+CALL_LOOKUP = "<tool_call>\n{\"name\": \"get_customer_by_phone\", \"arguments\": {\"phone_number\": \"555-123-2002\"}}\n</tool_call>"
+DEVICE = [
+    {"role": "system", "content": "You are a telecom support agent."},
+    {"role": "user", "content": "My phone shows no service."},
+    {"role": "assistant", "content": CALL_STATUS},                                  # 2: the customer's tool
+    {"role": "tool", "content": "Error: Tool 'check_status_bar' not found."},
+    {"role": "assistant", "content": "Could you tell me what your status bar shows?"},
+    {"role": "user", "content": "No signal and airplane mode is on. My number is 555-123-2002."},
+    {"role": "assistant", "content": CALL_LOOKUP},                                  # 6
+    {"role": "tool", "content": "{\"customer_id\": \"C1001\"}"},
+    {"role": "assistant", "content": "Please turn airplane mode off."},
+    {"role": "user", "content": "Done, it works now. ###STOP###"},
+]
+DEVICE_ONLY = DEVICE[:5] + [{"role": "user", "content": "It works now. ###STOP###"}]
+
+
+def test_calls_to_missing_tools_are_never_targets():
+    tg = build_action_targets(DEVICE, k=3, skip_invalid=True, env="tau2")
+    assert all(CALL_STATUS not in t["actions"] for t in tg)
+    by = {t["prefix_end"] + 1: t["actions"] for t in tg}
+    assert by[2] == ["Could you tell me what your status bar shows?", CALL_LOOKUP, "Please turn airplane mode off."]
+    # the rule belongs to skip_invalid: without it the call stays
+    assert build_action_targets(DEVICE, k=3, skip_invalid=False, env="tau2")[0]["actions"][0] == CALL_STATUS
+
+
+def test_missing_tool_calls_do_not_count_as_calls(tok):
+    kw = dict(k=3, skip_invalid=True, env="tau2", layout="turns", skip_no_call=True)
+    assert build_action_forecast_samples(DEVICE_ONLY, tok, **kw) == []      # its only call was not the agent's
+    assert build_action_forecast_samples(DEVICE, tok, **kw)                 # the real lookup keeps samples

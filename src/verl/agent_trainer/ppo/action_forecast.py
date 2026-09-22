@@ -46,6 +46,25 @@ DEFAULT_ACTION_FORECAST_TURNS_PROMPT = (
 )
 ACTION_FORECAST_NEXT_PROMPT = "Next action?"
 ACTION_FORECAST_LAYOUTS = ("list", "turns")
+# What a native (tool-calling) forecast predicts. 'all': every action, tool calls and
+# customer messages. 'calls': the policy's tool calls only -- anchors are its tool-call
+# turns and the target is its next K tool calls, looking past the messages (and results)
+# in between, like the ReAct envs, where every action acts on the environment. Messages
+# are never trained, so the forecast cannot teach talking instead of acting. In v10
+# (targets='all', coef 0.005, balanced decision token) the forecast source -- wins of
+# mixed groups -- was announcement-rich ("I will now ...", "Let me proceed ...", up to 30%
+# of its messages); from step 6 the policy's own messages announced actions ~1.5x as often
+# as GRPO's, and from step 11 its tool calls fell (4.8 -> 2.7 per episode by step 13) while
+# its own GRPO signal favoured MORE calls. With 'calls' + balance_calls, every target turn
+# starts with <tool_call>, the balance weight of that decision token is 0, and the forecast
+# trains only which tool and which arguments.
+ACTION_FORECAST_TARGETS = ("all", "calls")
+DEFAULT_ACTION_FORECAST_CALLS_PROMPT = (
+    "Plan ahead: give the next {k} tool calls you will make to make progress on the task, "
+    "one tool call per reply, starting with the one you make right now. Reply with the "
+    "tool call only."
+)
+ACTION_FORECAST_NEXT_CALL_PROMPT = "Next tool call?"
 
 
 def _to_chat_list(messages) -> List[Dict[str, str]]:
@@ -169,6 +188,10 @@ INVALID_OUTCOME_PATTERNS = {
 # cancelled"); a customer message is never an invalid outcome.
 _TAU2_INVALID_PREFIXES = ("error", "invalid turn")
 _TOOL_NAME_RE = re.compile(r'"name"\s*:\s*"([^"]+)"')
+# A call to a tool the agent does not have ("Error: Tool 'check_status_bar' not found.") --
+# in telecom mostly the customer's own device tools. In v11's wins 46% of telecom's call
+# targets were such calls, and 47 of its 126 samples with a call had no other call.
+_TAU2_TOOL_NOT_FOUND_RE = re.compile(r"^\s*error:\s*tool\s+'[^']*'\s+not found", re.I)
 
 
 def _native_tool_name(action: str) -> Optional[str]:
@@ -191,6 +214,8 @@ def _native_effective(convo, action_idxs, actions_seq, env: str) -> List[bool]:
       redone is kept: in tau2 it is usually informative ("user not found" -> look the user
       up another way; "non-pending order cannot be cancelled" -> tell the customer), and it
       is part of the path that won.
+    * A call to a tool the agent does not have ("Error: Tool '...' not found.") is always
+      dropped: there is no correct version of it to learn.
     * A message is dropped only if it repeats an earlier message of the trajectory
       word for word (whitespace-normalized).
 
@@ -199,19 +224,23 @@ def _native_effective(convo, action_idxs, actions_seq, env: str) -> List[bool]:
     so it cut the tool-call share of the targets to 24.7% against the policy's 31.3%
     (30.3% with no skipping, 29.5% with this rule), biasing the forecast toward talking.
     """
-    names, failed = [], []
+    names, failed, missing = [], [], []
     for ai, a in zip(action_idxs, actions_seq):
         name = _native_tool_name(a or "")
         res = (convo[ai + 1]['content'] if (ai + 1 < len(convo)
                and convo[ai + 1].get('role') in ('user', 'tool')) else '')
         names.append(name)
         failed.append(name is not None and is_invalid_outcome(res, env))
+        missing.append(name is not None and bool(_TAU2_TOOL_NOT_FOUND_RE.match(res or '')))
     valid: List[bool] = []
     seen_messages = set()
     for j, a in enumerate(actions_seq):
         if not a:
             valid.append(True)               # empty turns are filtered by the caller anyway
         elif names[j] is not None:
+            if missing[j]:                   # the tool does not exist: never a valid action
+                valid.append(False)
+                continue
             redone = failed[j] and any(names[k] == names[j] and not failed[k]
                                        for k in range(j + 1, len(actions_seq)))
             valid.append(not redone)
@@ -236,7 +265,7 @@ def is_invalid_outcome(result_obs: str, env: str = "alfworld") -> bool:
 
 
 def build_action_targets(messages, k: int = 3, skip_invalid: bool = False,
-                       env: str = "alfworld") -> List[Dict[str, object]]:
+                       env: str = "alfworld", targets: str = "all") -> List[Dict[str, object]]:
     """For each action turn t, return per-step targets.
 
     {'prefix_end': idx, 'actions': [a_t..a_{t+K-1}], 'action_turns': [..], 'src_turn': n}
@@ -251,7 +280,17 @@ def build_action_targets(messages, k: int = 3, skip_invalid: bool = False,
     target then contains only the next-K *effective* actions (looking past the
     skipped ones). ``env`` selects the invalid-outcome patterns. For the native
     tool-calling envs the rule is trajectory-level: see _native_effective.
+
+    ``targets='calls'`` (native tool-calling envs only): anchors are the tool-call turns
+    and ``actions`` are the next K tool calls from there on (the current one included,
+    unless skip_invalid drops it), looking past messages; see ACTION_FORECAST_TARGETS.
     """
+    if targets not in ACTION_FORECAST_TARGETS:
+        raise ValueError(f"action_forecast targets must be one of {ACTION_FORECAST_TARGETS}, got {targets!r}")
+    calls_only = targets == "calls"
+    if calls_only and (env or "").lower() not in _NATIVE_TOOL_ENVS:
+        raise ValueError(f"action_forecast targets='calls' needs a native tool-calling env "
+                         f"{_NATIVE_TOOL_ENVS}, got env={env!r}")
     convo = _to_chat_list(messages)
     action_idxs = _action_turn_indices(convo)
     actions_seq = [extract_action(convo[ai]['content'], env=env) for ai in action_idxs]
@@ -269,6 +308,17 @@ def build_action_targets(messages, k: int = 3, skip_invalid: bool = False,
         valid_seq = [True] * len(action_idxs)
 
     out: List[Dict[str, object]] = []
+    if calls_only:
+        is_call = [_native_tool_name(a or "") is not None for a in actions_seq]
+        for n, ai in enumerate(action_idxs):
+            if not is_call[n]:
+                continue                      # anchors are the policy's tool-call turns
+            sel = [j for j in range(n, len(actions_seq))
+                   if actions_seq[j] and valid_seq[j] and is_call[j]][:k]
+            if sel:
+                out.append({'prefix_end': ai - 1, 'actions': [actions_seq[j] for j in sel],
+                            'action_turns': sel, 'src_turn': n})
+        return out
     for n, ai in enumerate(action_idxs):
         if skip_invalid:
             # look past invalid actions: next-K *effective* actions from step n on
@@ -304,8 +354,19 @@ def build_action_forecast_samples(
     skip_invalid: bool = False,
     env: str = "alfworld",
     layout: str = "list",
+    targets: str = "all",
+    skip_no_call: bool = False,
+    stats: Optional[dict] = None,
 ) -> List[Dict[str, "object"]]:
     """Per-step teacher-forced forecast-SFT samples for one trajectory.
+
+    ``skip_no_call`` (native tool-calling envs): a sample whose K target actions contain no
+    tool call is invalid and skipped, so a trajectory without any tool call gives no sample
+    and message-only stretches are not forecast; ``stats['skipped_no_call']`` counts them.
+    v10/v11 learned from the wins of groups with mixed outcomes, 23-27% of airline and
+    44-49% of telecom such wins had no tool call at all (the customer did the device steps,
+    or a refusal), and the policy's talk-only conversations grew in every domain -- retail
+    from 2% to 18% in v10 although its own forecast wins always called tools.
 
     Target: the realized next-K bare action commands (grounded — does NOT
     contaminate the rollout).
@@ -330,21 +391,32 @@ def build_action_forecast_samples(
         raise ValueError(f"{env}: native tool-calling targets are literal multi-line spans of the policy's "
                          "turns and need layout='turns' (set ACTION_FORECAST_LAYOUT=turns)")
 
+    if skip_no_call and (env or "").lower() not in _NATIVE_TOOL_ENVS:
+        raise ValueError(f"action_forecast skip_no_call needs a native tool-calling env "
+                         f"{_NATIVE_TOOL_ENVS}, got env={env!r}")
+
     convo = _to_chat_list(messages)
     samples: List[Dict[str, object]] = []
-    for tgt in build_action_targets(messages, k=k, skip_invalid=skip_invalid, env=env):
+    turns_prompt, next_prompt = ((DEFAULT_ACTION_FORECAST_CALLS_PROMPT, ACTION_FORECAST_NEXT_CALL_PROMPT)
+                                 if targets == "calls" else
+                                 (DEFAULT_ACTION_FORECAST_TURNS_PROMPT, ACTION_FORECAST_NEXT_PROMPT))
+    for tgt in build_action_targets(messages, k=k, skip_invalid=skip_invalid, env=env, targets=targets):
         items = (tgt.get('actions') or [])[:k]   # clamp to what's available (<= k)
         if not items:
+            continue
+        if skip_no_call and not any(_native_tool_name(a) is not None for a in items):
+            if stats is not None:
+                stats['skipped_no_call'] = stats.get('skipped_no_call', 0) + 1
             continue
         realized = len(items)
         # synthetic prompt formatted with the REALIZED count
         prefix = list(convo[:tgt['prefix_end'] + 1])
         if layout == "turns":
-            prefix.append({'role': 'user', 'content': DEFAULT_ACTION_FORECAST_TURNS_PROMPT.format(k=realized)})
+            prefix.append({'role': 'user', 'content': turns_prompt.format(k=realized)})
             target_msgs = []
             for j, a in enumerate(items):
                 if j:
-                    target_msgs.append({'role': 'user', 'content': ACTION_FORECAST_NEXT_PROMPT})
+                    target_msgs.append({'role': 'user', 'content': next_prompt})
                 target_msgs.append({'role': 'assistant', 'content': a})
             s = encode_sft_sample(tokenizer, prefix, target_msgs,
                                   max_length=max_length, min_target_tokens=min_target_tokens,
@@ -546,6 +618,51 @@ def select_forecast_trajectories(n: int, rewards=None, gate: str = "wins",
     return keep, stats
 
 
+def _trained_spans(loss_mask) -> List[tuple]:
+    """(start, end) of each contiguous run of trained positions -- one per target turn in the
+    'turns' layout (the filler prompts between turns are untrained)."""
+    idx = [i for i, v in enumerate(loss_mask.tolist()) if v]
+    spans = []
+    for i in idx:
+        if spans and i == spans[-1][1]:
+            spans[-1] = (spans[-1][0], i + 1)
+        else:
+            spans.append((i, i + 1))
+    return spans
+
+
+def action_length_weights(loss_mask):
+    """Per-token weights giving every target action the same total weight in its sample's
+    loss. The forecast CE is a mean over the sample's N trained tokens; a token of action j
+    (a trained span of n_j tokens, K spans) gets N / (K * n_j), so the sample's loss becomes
+    the mean over its K actions of each action's mean token CE (exact at one sample per
+    micro-batch, the setting every forecast run uses). Untrained positions keep weight 1.
+
+    Why: tool calls are short and messages long -- in v10's forecast data a call target had
+    a median of 33 tokens and a message 111 -- so under the plain token mean the 26.7% of
+    target turns that are calls carried 9.9% of the trained tokens, and on average 16% of a
+    sample's loss. With the 'list' layout the K actions share one span and the weights are 1.
+    """
+    import torch
+    tw = torch.ones(loss_mask.shape, dtype=torch.float32)
+    spans = _trained_spans(loss_mask)
+    if spans:
+        n_tok = sum(b - a for a, b in spans)
+        for a, b in spans:
+            tw[a:b] = n_tok / (len(spans) * (b - a))
+    return tw
+
+
+def _span_kinds(decision_kind, loss_mask):
+    """Per-position kind of the target turn a trained token belongs to (1 = tool call,
+    2 = message, 0 = untrained), from the kind marked on each turn's first token."""
+    import torch
+    kinds = torch.zeros(loss_mask.shape, dtype=torch.int8)
+    for a, b in _trained_spans(loss_mask):
+        kinds[a:b] = int(decision_kind[a])
+    return kinds
+
+
 def build_action_forecast_batch(
     messages_list,
     tokenizer,
@@ -561,6 +678,9 @@ def build_action_forecast_batch(
     group_norm: bool = False,
     layout: str = "list",
     balance_calls: bool = False,
+    targets: str = "all",
+    length_norm: bool = False,
+    skip_no_call: bool = False,
 ):
     """Padded forecast-SFT batch over trajectories, with win/all gating.
 
@@ -572,6 +692,16 @@ def build_action_forecast_batch(
     ones a weak policy wins; inside a mixed group the win calls less than the losses), the
     forecast pulled the policy's call rate from ~30% to ~0 within 15 steps (v8), and once
     no task had a mixed outcome GRPO had no signal left to recover it.
+
+    ``targets='calls'`` forecasts the policy's tool calls only (see ACTION_FORECAST_TARGETS);
+    with balance_calls every decision token then has weight 0.
+
+    ``skip_no_call``: skip every sample whose K target actions contain no tool call (see
+    build_action_forecast_samples).
+
+    ``length_norm``: every target action gets the same weight in its sample's loss,
+    whatever its length (see action_length_weights). With balance_calls, the balance is
+    then computed on each decision token's actual weight in the loss, so it stays neutral.
 
     gate='wins' keeps only trajectories whose reward > success_threshold (needs
     ``rewards`` aligned to ``messages_list``); gate='all' keeps everything.
@@ -600,6 +730,7 @@ def build_action_forecast_batch(
         group_ids=group_ids, group_norm=group_norm)
 
     all_samples: List[Dict[str, object]] = []
+    skip_stats: Dict[str, int] = {}
     n_traj_used = 0
     n_traj_considered = 0
     traj_records = []   # (group_id, n_samples, start_idx) per distilled traj (group_norm)
@@ -610,7 +741,8 @@ def build_action_forecast_batch(
         traj_samples = build_action_forecast_samples(
             messages=messages, tokenizer=tokenizer, k=k,
             max_length=max_length,
-            skip_invalid=skip_invalid, env=env, layout=layout)
+            skip_invalid=skip_invalid, env=env, layout=layout, targets=targets,
+            skip_no_call=skip_no_call, stats=skip_stats)
         if max_samples_per_trajectory is not None and len(traj_samples) > max_samples_per_trajectory:
             traj_samples = traj_samples[-max_samples_per_trajectory:]
         if traj_samples:
@@ -642,8 +774,14 @@ def build_action_forecast_batch(
         for s, w in zip(all_samples, wts):
             s['loss_weight'] = w
 
-    # Call/message decision balancing (after group_norm, so q uses the final sample weights).
+    import torch
+    # Per-action length normalisation, then call/message decision balancing (both after
+    # group_norm, so they use the final sample weights).
     balance_meta = {}
+    if length_norm:
+        for s in all_samples:
+            s['token_weight'] = action_length_weights(s['loss_mask'])
+        balance_meta["action_forecast/length_norm"] = 1.0
     if balance_calls:
         import torch
         p = _policy_call_share(messages_list)
@@ -653,8 +791,15 @@ def build_action_forecast_batch(
             if dk is None:
                 continue
             lw = float(s.get('loss_weight', 1.0))
-            n_c += lw * int((dk == 1).sum())
-            n_m += lw * int((dk == 2).sum())
+            if length_norm:
+                # a decision token's actual weight in the loss: loss_weight * token_weight / N
+                tw0 = s['token_weight']
+                n_tok = max(float(s['loss_mask'][1:].sum()), 1.0)
+                n_c += lw * float(tw0[dk == 1].sum()) / n_tok
+                n_m += lw * float(tw0[dk == 2].sum()) / n_tok
+            else:
+                n_c += lw * int((dk == 1).sum())
+                n_m += lw * int((dk == 2).sum())
         balance_meta["action_forecast/balance_calls"] = 1.0
         if p is not None and (n_c + n_m) > 0:
             q = n_c / (n_c + n_m)
@@ -663,9 +808,9 @@ def build_action_forecast_batch(
                 dk = s.get('decision_kind')
                 if dk is None:
                     continue
-                tw = torch.ones(dk.shape, dtype=torch.float32)
-                tw[dk == 1] = w_c
-                tw[dk == 2] = w_m
+                tw = s['token_weight'].clone() if 'token_weight' in s else torch.ones(dk.shape, dtype=torch.float32)
+                tw[dk == 1] *= w_c
+                tw[dk == 2] *= w_m
                 s['token_weight'] = tw
             eff = (w_c * n_c) / (w_c * n_c + w_m * n_m) if (w_c * n_c + w_m * n_m) > 0 else float('nan')
             balance_meta.update({
@@ -675,6 +820,27 @@ def build_action_forecast_batch(
                 "action_forecast/w_call": float(w_c),
                 "action_forecast/w_msg": float(w_m),
             })
+    # Where the forecast's weight goes: tool-call tokens as a share of the trained tokens,
+    # and of the loss weight once token/sample weights apply (native 'turns' samples only).
+    if any(s.get('decision_kind') is not None for s in all_samples):
+        raw_c = raw_all = eff_c = eff_all = 0.0
+        for s in all_samples:
+            dk = s.get('decision_kind')
+            if dk is None:
+                continue
+            lm = s['loss_mask'].to(bool)
+            kinds = _span_kinds(dk, s['loss_mask'])
+            tw = s.get('token_weight')
+            tw = tw if tw is not None else torch.ones(lm.shape, dtype=torch.float32)
+            lw = float(s.get('loss_weight', 1.0))
+            n_tok = max(float(s['loss_mask'][1:].sum()), 1.0)
+            raw_c += float(((kinds == 1) & lm).sum()); raw_all += float(lm.sum())
+            eff_c += lw * float(tw[(kinds == 1) & lm].sum()) / n_tok
+            eff_all += lw * float(tw[lm].sum()) / n_tok
+        if raw_all > 0:
+            balance_meta["action_forecast/call_token_share"] = raw_c / raw_all
+        if eff_all > 0:
+            balance_meta["action_forecast/call_weight_share"] = eff_c / eff_all
     for s in all_samples:
         s.pop('decision_kind', None)
 
@@ -696,6 +862,9 @@ def build_action_forecast_batch(
             "action_forecast/skip_invalid": 1.0 if skip_invalid else 0.0,
             "action_forecast/group_norm": 1.0 if group_norm else 0.0,
             "action_forecast/layout_turns": 1.0 if layout == "turns" else 0.0,
+            "action_forecast/targets_calls": 1.0 if targets == "calls" else 0.0,
+            "action_forecast/skip_no_call": 1.0 if skip_no_call else 0.0,
+            "action_forecast/n_skipped_no_call": float(skip_stats.get('skipped_no_call', 0)),
             **balance_meta,
             "action_forecast/k": float(k_mean)}
     if group_norm and traj_records:
