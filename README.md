@@ -74,7 +74,8 @@ versions that conflict with the training stack (WebShop is on 3.8, τ²-bench ne
 against a 3.10 trainer), so each is its own HTTP service that training reaches over
 `requests`.
 
-For τ²-bench specifically, see `docs/TAU2_GRPO.md`: the benchmark must be pinned to
+For τ²-bench specifically, `docs/TAU2_SETUP.md` is the step-by-step environment setup
+and `docs/TAU2_GRPO.md` the protocol and results: the benchmark must be pinned to
 commit `c5b2d22`, and evaluation goes through tau2's own CLI. Those two choices are what
 make numbers comparable to published baselines.
 
@@ -88,7 +89,14 @@ conda create -y -p ./envs/tau2 python=3.12
 # the item-id files in data/ are committed, but this regenerates them
 ./envs/tau2/bin/python scripts/make_tau2_itemid.py \
     --domains retail airline telecom --split train --out data/
+
+# one upstream fix tau2's CLI needs against current vLLM (idempotent; the one-command
+# launcher applies it for you)
+bash scripts/patch_tau2_bench.sh
 ```
+
+The training stack runs on vLLM 0.6.3 (verl's vendored engine) **or** vLLM >= 0.6.6
+(the SPMD engine, required on Blackwell GPUs); see `docs/TAU2_GRPO.md`.
 
 ## Running
 
@@ -102,9 +110,18 @@ ACTION_FORECAST_ENABLE=True ACTION_FORECAST_COEF=0.01 \
 
 # tmux launchers bring up env servers + training together
 bash scripts/launch_sciworld_grpo_tmux.sh
-bash scripts/launch_tau2_grpo_tmux.sh
 
-# τ²-bench with InfoPO's published hyperparameters, for a comparable run
+# τ²-bench in one command: customer + env cluster + training, torn down on exit.
+# Default preset reproduces InfoPO's training protocol (three domains, tau2's native
+# tool calling, gpt-4o-mini customer) with plain GRPO; PRESET=repo is the retail/ReAct
+# setup. DRY_RUN=1 checks prerequisites and prints the configuration.
+TRAIN_ENV=<conda env> MODEL_PATH=<Qwen2.5-7B-Instruct snapshot> CUDA_VISIBLE_DEVICES=0,1,2,3 \
+bash scripts/launch_tau2_grpo_tmux.sh     # plain GRPO, detached tmux session
+bash scripts/launch_tau2_cope_tmux.sh     # CoPE = GRPO + action forecasting (weight 0.1)
+# foreground, same pipeline: PRESET=infopo bash scripts/run_tau2_pipeline.sh
+bash scripts/launch_tau2_grpo_tmux.sh          # same pipeline, detached in tmux
+
+# τ²-bench with InfoPO's published hyperparameters on slurm
 bash scripts/launch_tau2_infopo_aligned.sh
 ```
 

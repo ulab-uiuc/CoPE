@@ -144,6 +144,11 @@ class RolloutHandler:
                 "assistat_suffix_msg": "<|im_end|>",
                 "user_prefix_msg": "\n<|im_start|>user\n",
                 "user_suffix_msg": "<|im_end|>",
+                # tool-role observation, rendered by Qwen2.5's template as a user turn
+                # wrapping the content in <tool_response> tags.
+                "tool_prefix_msg": "\n<|im_start|>user\n<tool_response>\n",
+                "tool_close_msg": "\n</tool_response>",
+                "tool_suffix_msg": "<|im_end|>",
             }
         }
         # Temporal Ensembling: which action turn each token belongs to (-1 = not part
@@ -264,6 +269,62 @@ class RolloutHandler:
         assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask) == len(self.observation_mask), f"""Rollout Handler has different length of {len(self.input_ids)=},
             {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}, {len(self.observation_mask)=}"""
         
+    def add_tool_message(
+        self,
+        tokenizer: PreTrainedTokenizer,
+        content: str,
+        format: Literal["qwen"] = "qwen",
+    ) -> None:
+        """Append a tool result as a `tool`-role message (native tool-calling protocol).
+
+        Token-for-token equal to the chat template's rendering of
+        {"role": "tool", "content": ...}, which get_generation_prompt re-renders each
+        round. One subtlety decides that equality: the content and the closing
+        "\n</tool_response>" are encoded TOGETHER. Qwen's pre-tokenizer merges a closing
+        punctuation mark with the newline that follows it ("}\n" is one token), so
+        encoding them separately produces one token more than the template does
+        whenever a tool result ends in '}' or ']' -- which JSON results always do.
+        The special tokens on either side never merge, so they are encoded alone.
+        """
+        content = content.lstrip()
+        # A tool result answers a tool call, so it can only follow an assistant turn.
+        # The token suffix alone cannot tell (user and assistant turns both end in
+        # <|im_end|>); the message list can.
+        if not self.messages or self.messages[-1].role != "assistant":
+            raise ValueError(
+                f"tool message must follow an assistant turn, got "
+                f"{self.messages[-1].role if self.messages else 'no messages'}")
+        msg = Message(role='tool', content=content)
+        self.messages.append(msg)
+        assert format in self.format_config.keys(), f"format {format} not supported"
+        prefix_token_ids = tokenizer.encode(self.format_config[format]["tool_prefix_msg"],
+                                            add_special_tokens=False)
+        body_token_ids = tokenizer.encode(content + self.format_config[format]["tool_close_msg"],
+                                          add_special_tokens=False)
+        suffix_token_ids = tokenizer.encode(self.format_config[format]["tool_suffix_msg"],
+                                            add_special_tokens=False)
+        assistant_suffix_ids = tokenizer.encode(self.format_config[format]["assistat_suffix_msg"],
+                                                add_special_tokens=False)
+        if self.input_ids[-len(assistant_suffix_ids):] != assistant_suffix_ids:
+            max_len = len(assistant_suffix_ids)
+            raise ValueError(
+                f"""Unsupported end of message format before a tool message:
+                {tokenizer.decode(self.input_ids[-max_len:])}"""
+            )
+        append_token_ids = prefix_token_ids + body_token_ids + suffix_token_ids
+        _loss_mask = [0] * len(append_token_ids)
+        _observation_mask = ([0] * len(prefix_token_ids) + [1] * len(body_token_ids)
+                             + [0] * len(suffix_token_ids))
+        self.input_ids += append_token_ids
+        self.turn_ids += [-1] * len(append_token_ids)   # observations are no action turn
+        self.attention_mask += [1] * len(append_token_ids)
+        last_position_ids = self.position_ids[-1]
+        self.position_ids += [last_position_ids + k for k in range(1, len(append_token_ids) + 1)]
+        self.loss_mask += _loss_mask
+        self.observation_mask += _observation_mask
+        assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask) == len(self.observation_mask), f"""Rollout Handler has different length of {len(self.input_ids)=},
+            {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}, {len(self.observation_mask)=}"""
+
     def truncate_output_ids(self) -> None:
         self.input_ids = self.input_ids[: self.max_model_len]
         self.attention_mask = self.attention_mask[: self.max_model_len]

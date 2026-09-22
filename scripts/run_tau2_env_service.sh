@@ -13,9 +13,12 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONDA_SH="${CONDA_SH:-/opt/conda/etc/profile.d/conda.sh}"
-TAU2_ENV="${TAU2_ENV:-${TAU2_ENV_DEFAULT}}"
+TAU2_ENV="${TAU2_ENV:-${TAU2_ENV_DEFAULT:-${ROOT}/envs/tau2}}"
 HOST="${HOST:-127.0.0.1}"
-BASE_PORT="${BASE_PORT:-36201}"
+# Listening ports stay below 32768: the kernel hands out ephemeral source ports from
+# 32768-60999 (see /proc/sys/net/ipv4/ip_local_port_range), and a listener inside that
+# range can lose its port to an outbound connection -- EADDRINUSE at startup.
+BASE_PORT="${BASE_PORT:-20401}"
 NUM_ENVS="${NUM_ENVS:-1}"
 LOG_DIR="${LOG_DIR:-${ROOT}/runlogs/env_cluster/tau2_$(date +%Y%m%d_%H%M%S)}"
 PID_DIR="${LOG_DIR}/pids"
@@ -30,7 +33,7 @@ export TAU2_USER_LLM="${TAU2_USER_LLM:-openai/user-sim}"
 # a hosted model (TAU2_USER_LLM=openai/gpt-4o-mini), otherwise litellm is pointed at a
 # local port that does not serve it. Defaulted only when the caller did not decide.
 if [[ -z "${TAU2_USER_API_BASE+x}" && "${TAU2_USER_LLM}" == "openai/user-sim" ]]; then
-  export TAU2_USER_API_BASE="http://127.0.0.1:38001/v1"
+  export TAU2_USER_API_BASE="http://127.0.0.1:20301/v1"
 elif [[ -n "${TAU2_USER_API_BASE:-}" ]]; then
   export TAU2_USER_API_BASE
 fi
@@ -39,8 +42,11 @@ fi
 [[ -n "${TAU2_USER_API_KEY_FILE:-}" ]] && export TAU2_USER_API_KEY_FILE
 [[ -n "${TAU2_USER_API_KEY:-}" ]] && export TAU2_USER_API_KEY
 export TAU2_USER_TEMPERATURE="${TAU2_USER_TEMPERATURE:-0.0}"
-# `env` = DB/env-state only. The official `all` basis pulls in an NL-assertion judge
-# LLM on 112 of retail's 114 tasks, i.e. one extra judge call per rollout.
+# `env` = DB/env-state only. `all` = tau2's EvaluationType.ALL: DB/env-state, ACTION
+# and COMMUNICATE checks multiplied together -- what `tau2 run` scores at evaluation
+# time. At the pinned tau2 commit (c5b2d22) that costs no LLM call: no task in any
+# domain carries an NL assertion, and plain ALL never invokes the NL evaluator (only
+# the WIP ALL_WITH_NL_ASSERTIONS does). Later tau2 trees do add an LLM judge here.
 export TAU2_REWARD_BASIS="${TAU2_REWARD_BASIS:-env}"
 # Partial credit from per-action checks. Measured on retail train with Qwen2.5-7B:
 # binary leaves 64/74 tasks at a uniform zero so only 4/74 GRPO groups have any

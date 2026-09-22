@@ -170,3 +170,6 @@ saves/
 .hf_cache/
 wandb/
 outputs/
+
+# merged HF checkpoints produced by scripts/model_merger.py (tens of GB)
+merged_*/

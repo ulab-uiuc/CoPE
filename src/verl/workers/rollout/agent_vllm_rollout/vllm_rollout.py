@@ -41,6 +41,41 @@ from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
 from vllm import SamplingParams
 
+# vllm_version is set only by the vendored engines (<= 0.6.3). On a stock vLLM the
+# third_party dispatcher takes its SPMD branch and leaves it None, which is what
+# distinguishes the two engine APIs everywhere below.
+_VLLM_CUSTOMIZED = vllm_version in ('0.3.1', '0.4.2', '0.5.4', '0.6.3')
+
+
+def _post_process_outputs(tokenizer, request_outputs):
+    """Reproduce the vendored engine's return contract on a stock vLLM.
+
+    verl's patched LLM (third_party/vllm/vllm_v_0_6_3/llm.py) does not return
+    vLLM's List[RequestOutput]; it pads the completions into a
+    (num_prompts, max_response_len) tensor and returns (token_ids, logprobs).
+    The agent loop below reads exactly that -- `output[0].tolist()` -- so the SPMD
+    path converts here rather than in the loop, which keeps the two engines'
+    behaviour identical from the rollout's point of view.
+    """
+    output_token_ids = []
+    logprobs = []
+    for request_output in request_outputs:  # List[RequestOutput]
+        for output in request_output.outputs:  # List[CompletionOutput], usually len == 1
+            output_token_ids.append(torch.tensor(output.token_ids))
+            logprobs_dicts = output.logprobs
+            if logprobs_dicts is not None:
+                logprob = []
+                for logprobs_dict, tok_id in zip(logprobs_dicts, output.token_ids):
+                    logprob.append(logprobs_dict[tok_id].logprob)
+                logprobs.append(torch.tensor(logprob))
+
+    pad_token_id = (tokenizer.pad_token_id
+                    if tokenizer.pad_token_id is not None else tokenizer.eos_token_id)
+    output_token_ids = pad_sequence(output_token_ids, batch_first=True, padding_value=pad_token_id)
+    if len(logprobs) > 0:
+        logprobs = pad_sequence(logprobs, batch_first=True, padding_value=pad_token_id)
+    return output_token_ids, logprobs
+
 import os
 import json
 import time
@@ -59,7 +94,7 @@ from verl.workers.rollout.schemas import RolloutHandler, Message, _pre_process_i
 
 class vLLMRollout(BaseRollout):
 
-    def __init__(self, actor_module: nn.Module, rollout_config: DictConfig, agentgym_config: DictConfig, tokenizer, model_hf_config, **kwargs):
+    def __init__(self, actor_module: nn.Module, rollout_config: DictConfig, agentgym_config: DictConfig, tokenizer, model_hf_config, model_path: str = None, **kwargs):
         """A vLLM rollout. It requires the module is supported by the vllm.
 
         Args:
@@ -67,6 +102,9 @@ class vLLMRollout(BaseRollout):
             config: DictConfig
             tokenizer: the task/model tokenizer
             model_hf_config: the huggingface config to initiallize the generating model in vllm
+            model_path: local path to the policy weights. Only the SPMD engine needs it --
+                the vendored one is handed the live FSDP module instead. Falls back to
+                model_hf_config._name_or_path, which AutoConfig.from_pretrained sets.
             **kwargs: train_tp, for Megatron Backend to initialize hybrid engine (zero redundancy) process group
         """
         super().__init__()
@@ -87,35 +125,89 @@ class vLLMRollout(BaseRollout):
             os.environ['MEGATRON_IMPORT_TIMERS'] = '0'
             train_tp = kwargs.get('train_tp', None)
             num_tp_per_train_tp = train_tp // tensor_parallel_size
-            if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
+            if _VLLM_CUSTOMIZED:
                 vllm_ps.initialize_parallel_state(tensor_model_parallel_size=tensor_parallel_size,
                                                   num_tp_per_train_tp=num_tp_per_train_tp)
 
-        self.inference_engine = LLM(
-            actor_module,
-            tokenizer=tokenizer,
-            model_hf_config=model_hf_config,
-            tensor_parallel_size=tensor_parallel_size,
-            dtype=rollout_config.dtype,
-            enforce_eager=rollout_config.enforce_eager,
-            gpu_memory_utilization=rollout_config.gpu_memory_utilization,
-            skip_tokenizer_init=False,
-            load_format=rollout_config.load_format,
-            disable_log_stats=rollout_config.disable_log_stats,
-            max_num_batched_tokens=max_num_batched_tokens,
-            # Without this the engine falls back to the model config's own limit
-            # (32768 for Qwen2.5), and vLLM sizes/validates the KV cache against that
-            # rather than against what a rollout actually needs. Harmless for a 7B,
-            # fatal for a 14B on a 40GB card: engine init dies with "max seq len
-            # (32768) is larger than the maximum number of tokens that can be stored
-            # in KV cache (7472)". Same expression the rollout loop asserts against.
-            max_model_len=min(self.config.max_model_len,
-                              self.config.prompt_length + self.config.response_length),
-            enable_chunked_prefill=rollout_config.enable_chunked_prefill,
-        )
+        # Without this the engine falls back to the model config's own limit
+        # (32768 for Qwen2.5), and vLLM sizes/validates the KV cache against that
+        # rather than against what a rollout actually needs. Harmless for a 7B,
+        # fatal for a 14B on a 40GB card: engine init dies with "max seq len
+        # (32768) is larger than the maximum number of tokens that can be stored
+        # in KV cache (7472)". Same expression the rollout loop asserts against.
+        engine_max_model_len = min(self.config.max_model_len,
+                                   self.config.prompt_length + self.config.response_length)
+        # Largest generation prompt the engine will accept, leaving room for the turn's
+        # own completion. The agent loop checks trajectories against this each round --
+        # see the guard in generate_sequences.
+        self.max_generation_prompt_len = engine_max_model_len - self.config.max_tokens
 
-        # Offload vllm model to reduce peak memory usage
-        self.inference_engine.offload_model_weights()
+        if _VLLM_CUSTOMIZED:
+            self.inference_engine = LLM(
+                actor_module,
+                tokenizer=tokenizer,
+                model_hf_config=model_hf_config,
+                tensor_parallel_size=tensor_parallel_size,
+                dtype=rollout_config.dtype,
+                enforce_eager=rollout_config.enforce_eager,
+                gpu_memory_utilization=rollout_config.gpu_memory_utilization,
+                skip_tokenizer_init=False,
+                load_format=rollout_config.load_format,
+                disable_log_stats=rollout_config.disable_log_stats,
+                max_num_batched_tokens=max_num_batched_tokens,
+                max_model_len=engine_max_model_len,
+                enable_chunked_prefill=rollout_config.enable_chunked_prefill,
+            )
+            # Offload vllm model to reduce peak memory usage
+            self.inference_engine.offload_model_weights()
+        else:
+            # Stock vLLM builds its own copy of the model from disk, so it needs a path
+            # rather than the FSDP module. The weights it loads here are thrown away at
+            # the first sharding-manager __enter__, which overwrites them from the
+            # actor's state_dict -- hence load_format 'dummy', which skips reading the
+            # checkpoint at all. verl's own 'dummy_dtensor' is a name only the vendored
+            # engine knows; stock vLLM rejects it.
+            if model_path is None:
+                model_path = getattr(model_hf_config, '_name_or_path', None)
+            assert model_path, (
+                'SPMD vLLM needs a local model path; pass model_path= or use a '
+                'model_hf_config carrying _name_or_path')
+
+            load_format = rollout_config.load_format
+            if load_format in ('dummy_dtensor', 'dummy_hf', 'dummy_megatron'):
+                load_format = 'dummy'
+
+            # external_launcher: every rank builds its own engine on top of the process
+            # group torch.distributed already established, which is what lets each rank
+            # drive its own conversations. enable_sleep_mode is what makes the sharding
+            # manager's sleep()/wake_up() pair work in place of the cache-engine calls.
+            self.inference_engine = LLM(
+                model=model_path,
+                tokenizer=model_path,
+                tensor_parallel_size=tensor_parallel_size,
+                distributed_executor_backend='external_launcher',
+                enable_sleep_mode=True,
+                dtype=rollout_config.dtype,
+                enforce_eager=rollout_config.enforce_eager,
+                gpu_memory_utilization=rollout_config.gpu_memory_utilization,
+                skip_tokenizer_init=False,
+                load_format=load_format,
+                disable_log_stats=rollout_config.disable_log_stats,
+                max_num_batched_tokens=max_num_batched_tokens,
+                max_model_len=engine_max_model_len,
+                enable_chunked_prefill=rollout_config.enable_chunked_prefill,
+                trust_remote_code=rollout_config.get('trust_remote_code', False),
+                # vLLM refuses the external launcher without an explicit seed, because
+                # ranks inside a TP group must sample identically. Differentiating the
+                # *data-parallel* ranks is FSDPVLLMShardingManager's job -- it reseeds
+                # torch with gen_dp_rank + 1000 around each generation pass -- so one
+                # constant here is what that mechanism expects, not a source of
+                # duplicate rollouts within a GRPO group.
+                seed=rollout_config.get('seed', 0),
+            )
+            # Matches the vendored engine's offload_model_weights() above: give the
+            # weight memory back until the sharding manager wakes the engine up.
+            self.inference_engine.sleep(level=1)
 
         kwargs = dict(
             n=1,
@@ -124,7 +216,7 @@ class vLLMRollout(BaseRollout):
         )
 
         # we may detokenize the result all together later
-        if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
+        if _VLLM_CUSTOMIZED:
             kwargs['detokenize'] = False
 
         # supporting adding any sampling params from the config file
@@ -140,6 +232,41 @@ class vLLMRollout(BaseRollout):
 
         self.tokenizer = tokenizer
 
+
+    def _init_cache_engine(self):
+        """Rebuild the KV cache before a generation pass.
+
+        Only the vendored engine needs this. Under SPMD the sharding manager owns the
+        engine's memory across the whole rollout -- it calls wake_up() on __enter__ and
+        sleep(level=1) on __exit__ -- so doing it again per pass would either free the
+        weights the sharding manager just loaded or double-allocate the cache.
+        """
+        if _VLLM_CUSTOMIZED and self.config.free_cache_engine:
+            self.inference_engine.init_cache_engine()
+
+    def _free_cache_engine(self):
+        """Counterpart to _init_cache_engine; a no-op under SPMD for the same reason."""
+        if _VLLM_CUSTOMIZED and self.config.free_cache_engine:
+            self.inference_engine.free_cache_engine()
+
+    def _engine_generate(self, prompt_token_ids, sampling_params, use_tqdm=False):
+        """Generate from pre-tokenized prompts, returning (token_ids, logprobs).
+
+        Both engines are driven through here so the agent loop sees one contract: a
+        padded (num_prompts, max_response_len) tensor as element 0. The vendored engine
+        pads internally; stock vLLM returns List[RequestOutput] and is padded by
+        _post_process_outputs.
+        """
+        if _VLLM_CUSTOMIZED:
+            return self.inference_engine.generate(prompts=None,
+                                                  prompt_token_ids=prompt_token_ids,
+                                                  sampling_params=sampling_params,
+                                                  use_tqdm=use_tqdm)
+        request_outputs = self.inference_engine.generate(
+            prompts=[{'prompt_token_ids': list(ids)} for ids in prompt_token_ids],
+            sampling_params=sampling_params,
+            use_tqdm=use_tqdm)
+        return _post_process_outputs(self.tokenizer, request_outputs)
 
     @contextmanager
     def update_sampling_params(self, **kwargs):
@@ -226,14 +353,11 @@ class vLLMRollout(BaseRollout):
         the underlying LLM on a list of pre-tokenized prompts and returns the decoded
         completions. Used to classify per-turn outcome predictability. Greedy/short.
         """
-        if self.config.free_cache_engine:
-            self.inference_engine.init_cache_engine()
+        self._init_cache_engine()
         try:
             sp = SamplingParams(n=1, temperature=0.0, top_p=1.0, top_k=-1,
                                 max_tokens=int(max_new_tokens))
-            output = self.inference_engine.generate(
-                prompts=None, prompt_token_ids=list(prompt_token_ids),
-                sampling_params=sp, use_tqdm=False)
+            output = self._engine_generate(list(prompt_token_ids), sp, use_tqdm=False)
             # verl's vLLM wrapper returns the response-token tensor as output[0]
             # (same as generate_sequences: response_ids = output[0].tolist()), a
             # (num_prompts, resp_len) tensor — NOT a list of vLLM RequestOutput.
@@ -241,14 +365,12 @@ class vLLMRollout(BaseRollout):
             resp_ids = resp.tolist() if hasattr(resp, "tolist") else list(resp)
             texts = [self.tokenizer.decode(r, skip_special_tokens=True) for r in resp_ids]
         finally:
-            if self.config.free_cache_engine:
-                self.inference_engine.free_cache_engine()
+            self._free_cache_engine()
         return texts
 
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
         # rebuild vllm cache engine
-        if self.config.free_cache_engine:
-            self.inference_engine.init_cache_engine()
+        self._init_cache_engine()
 
         global_steps = prompts.meta_info.get('global_steps', None)
         max_rounds = prompts.meta_info.get('max_rounds', 10)
@@ -272,10 +394,25 @@ class vLLMRollout(BaseRollout):
         env_clients = [init_env_client(self.agentgym_config) for _ in range(batch_size)]
         time.sleep(self.config.send_interval) # take a break before sendng request
         all_done_flag = False
+        # Native tool-calling protocol (tau2 / InfoPO alignment): the env server labels
+        # each observation with the role it came from -- "tool: <result>" for a tool
+        # call, "user: <reply>" for the customer. Tool results go back as tool-role
+        # messages and customer replies as bare user turns, exactly as tau2's own
+        # agent sees them; the ReAct harness instead feeds every observation, label
+        # included, as a user turn.
+        native_tools = bool(self.agentgym_config.get("native_tools", False))
+        def _split_role(state: str):
+            if native_tools:
+                if state.startswith("tool: "):
+                    return "tool", state[len("tool: "):]
+                if state.startswith("user: "):
+                    return "user", state[len("user: "):]
+            return "user", state
         for idx, rollout_handler in enumerate(rollout_handler_ls):
             try:
                 env_clients[idx].reset(rollout_handler.item_id)
                 task = env_clients[idx].observe()
+                _, task = _split_role(task)
                 rollout_handler.add_user_message(self.tokenizer, task)
             except TimeoutError:
                 print(f"Reset Timeout: Webarena Env Timeout. item id = {rollout_handler.item_id}")
@@ -296,7 +433,11 @@ class vLLMRollout(BaseRollout):
                     step_output.reward,
                     step_output.done,
                 )
-                rollout_handler_ls[idx].add_user_message(self.tokenizer, state)
+                role, body = _split_role(state)
+                if role == "tool":
+                    rollout_handler_ls[idx].add_tool_message(self.tokenizer, body)
+                else:
+                    rollout_handler_ls[idx].add_user_message(self.tokenizer, body)
                 return step_output.done
             except Exception as e:
                 rollout_handler_ls[idx].score = 0
@@ -307,19 +448,39 @@ class vLLMRollout(BaseRollout):
             # get generation prompt
             generation_prompt_idxs = []
             not_done_idxs = []
+            over_budget = 0
             for idx, rollout_handler in enumerate(rollout_handler_ls):
-                if not rollout_handler.done:
-                    generation_prompt_idxs.append(rollout_handler.get_generation_prompt(self.tokenizer))
-                    not_done_idxs.append(idx)
+                if rollout_handler.done:
+                    continue
+                prompt_ids = rollout_handler.get_generation_prompt(self.tokenizer)
+                # get_generation_prompt re-renders the whole message list and has no cap
+                # of its own; truncate_output_ids only trims the *training* tensors, and
+                # only after this loop. So a conversation that outgrows the engine's
+                # context window reaches vLLM unchecked, and vLLM rejects the request
+                # with "decoder prompt (length N) is longer than the maximum model
+                # length" -- an exception raised outside agent_step's try, which takes
+                # down every other trajectory in the batch with it.
+                #
+                # End the trajectory instead, exactly as running out of rounds does: it
+                # keeps whatever score the environment last gave it.
+                if len(prompt_ids) > self.max_generation_prompt_len:
+                    rollout_handler.done = True
+                    over_budget += 1
+                    continue
+                generation_prompt_idxs.append(prompt_ids)
+                not_done_idxs.append(idx)
+            if over_budget:
+                print(f"[rollout] round {rounds + 1}: ended {over_budget} trajectory(ies) "
+                      f"that outgrew the {self.max_generation_prompt_len}-token prompt budget")
+            if not not_done_idxs:
+                break
 
             rollout_bar.set_description(f"Rounds {rounds + 1}/{max_rounds} | Active agents per gpu: {len(not_done_idxs)}")
             # users can customize different sampling_params at different run
             with self.update_sampling_params(**kwargs):
-                output = self.inference_engine.generate(
-                    prompts=None,
-                    prompt_token_ids=generation_prompt_idxs,
-                    sampling_params=self.sampling_params,
-                    use_tqdm=False)
+                output = self._engine_generate(generation_prompt_idxs,
+                                               self.sampling_params,
+                                               use_tqdm=False)
             response_ids = output[0].tolist()
             all_done_flag = True
             time.sleep(self.config.send_interval) # take a break before sendng request
@@ -472,7 +633,6 @@ class vLLMRollout(BaseRollout):
         non_tensor_batch = {'rollout_messages': rollout_messages_np}
 
         # free vllm cache engine
-        if self.config.free_cache_engine:
-            self.inference_engine.free_cache_engine()
+        self._free_cache_engine()
 
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)

@@ -14,25 +14,32 @@ already uses for webshop (whose server runs on Python 3.8): the environment runs
 own HTTP service, and the training side talks to it through a thin `requests` client.
 
 ```
-launch_tau2_grpo_tmux.sh
-├─ tmux "tau2_usersim_<port>"      scripts/run_tau2_usersim_server.sh
-│     vLLM OpenAI-compatible server on a dedicated GPU -> the customer side
-├─ tmux "tau2_env_cluster_<port>"  scripts/run_tau2_env_service.sh
-│     N x `tau2-env` FastAPI processes (conda env agentenv-tau2, py3.12)
-│     each holds {env_idx: AgentGymEnv}; litellm points at the user-sim server
-└─ tmux "tau2_grpo_train"          scripts/run_tau2_grpo_train.sh
-      python -m verl.agent_trainer.main_ppo algorithm.adv_estimator=grpo \
-        actor_rollout_ref.agentgym.task_name=tau2
+scripts/launch_tau2_grpo_tmux.sh   plain GRPO (detached tmux session)
+scripts/launch_tau2_cope_tmux.sh   CoPE = GRPO + action forecasting (weight 0.1)
+scripts/run_tau2_pipeline.sh       the same pipeline in the foreground
+└─ scripts/run_tau2_pipeline.sh            one process tree, torn down on exit
+   ├─ customer                             USERSIM_MODE=hosted: gpt-4o-mini via litellm
+   │                                       USERSIM_MODE=local:  scripts/run_tau2_usersim_server.sh,
+   │                                         a vLLM OpenAI server on its own GPU
+   ├─ scripts/run_tau2_env_service.sh      N x `tau2-env` FastAPI processes (envs/tau2, py3.12),
+   │                                         each holding {env_idx: AgentGymEnv}; health-gated
+   └─ scripts/run_tau2_grpo_train.sh       python -m verl.agent_trainer.main_ppo \
+                                             algorithm.adv_estimator=grpo \
+                                             actor_rollout_ref.agentgym.task_name=tau2
 ```
 
 ## One-time setup
+
+(`docs/TAU2_SETUP.md` is the full, standalone version of this section.)
 
 ```bash
 # 1. AgentGym submodule (SSH is broken on this host; HTTPS resolves the pinned commit)
 git config submodule.AgentGym.url https://github.com/PolarisDane/Agentgym.git
 git submodule update --init AgentGym
 
-# 2. tau2 env-server conda env (Python 3.12)
+# 2. tau2 env-server conda env (Python 3.12). ./envs/tau2 is what the launchers expect
+#    by default (TAU2_ENV overrides).
+TAU2_ENV_DEFAULT=./envs/tau2
 conda create -y -p ${TAU2_ENV_DEFAULT} python=3.12
 P=${TAU2_ENV_DEFAULT}/bin/pip
 $P install -e tau2-bench
@@ -60,6 +67,38 @@ already in `agentgym-rl` (that one points at a different AgentGym checkout and h
 the import path.
 
 ## Running
+
+### In one command (no scheduler)
+
+```bash
+# InfoPO's training protocol -- three domains, tau2's native tool calling, gpt-4o-mini
+# customer -- with this repo's plain GRPO. Needs an OpenAI key in .secrets/openai_api_key.
+TRAIN_ENV=/path/to/conda/env MODEL_PATH=/path/to/Qwen2.5-7B-Instruct CUDA_VISIBLE_DEVICES=0,1,2,3 \
+  bash scripts/launch_tau2_grpo_tmux.sh
+
+# the same, detached in tmux
+bash scripts/launch_tau2_grpo_tmux.sh
+
+# this repo's original retail / ReAct / dense-reward setup
+PRESET=repo bash scripts/launch_tau2_grpo_tmux.sh
+
+# no API credit: a local Qwen customer on its own GPU (deltas only, not absolute scores)
+USERSIM_MODE=local USERSIM_GPU=4 CUDA_VISIBLE_DEVICES=0,1,2,3 bash scripts/launch_tau2_grpo_tmux.sh
+
+# check prerequisites and print the resolved configuration without launching anything
+DRY_RUN=1 bash scripts/launch_tau2_grpo_tmux.sh
+
+# GRPO + the action-forecast auxiliary loss (same protocol; adds a forecast-SFT pass per step)
+bash scripts/launch_tau2_cope_tmux.sh
+```
+
+Both entry points run `scripts/run_tau2_pipeline.sh`: it applies the tau2-bench patch,
+starts the customer (if local), brings up the env cluster behind a health gate, runs
+`scripts/run_tau2_grpo_train.sh`, and tears everything down on exit. Every knob of the
+training script is a plain environment variable; the `PRESET` fills the rest. Logs land
+in `runlogs/<exp>/` (`pipeline.log`, `train.log`, `env_cluster/`, and `main_task.out`,
+a link to the Ray task that prints the step metrics -- see "Things that bite"),
+checkpoints in `CKPT_DIR` -- point it at a big disk, one FSDP checkpoint of a 7B is ~86GB.
 
 ### On slurm (what this cluster has)
 
@@ -116,13 +155,64 @@ ground-truth match (weight 0.7) and right-tool-wrong-arguments (weight 0.3), the
 thing scaled by `TAU2_DENSE_WEIGHT=0.5` so a partial can never outscore a real solve.
 Eval A/B at identical 10.1% solve rate: informative groups 5.4% → 73%.
 
-`TAU2_REWARD_BASIS=env` scores from DB / env-assertion state only. The official `all`
-basis invokes an NL-assertion judge LLM on 112 of retail's 114 tasks — one extra judge
-call per rollout plus judge variance in the group baseline. Use `all` at eval time for
-leaderboard-comparable numbers.
+`TAU2_REWARD_BASIS=env` scores from DB / env-assertion state only. `all` is tau2's
+`EvaluationType.ALL`: DB/env-state, ACTION and COMMUNICATE checks multiplied together,
+which is what `tau2 run` scores at evaluation time -- so training on `env` optimises a
+looser criterion than the one you are measured on (retail and airline tasks can pass
+the DB check and still fail for not telling the customer something). At the pinned
+commit `c5b2d22` `all` costs **no LLM call**: none of the 292 tasks carries an
+`NL_ASSERTION` in its reward basis, and plain `ALL` never invokes the NL evaluator
+(only the WIP `ALL_WITH_NL_ASSERTIONS` does). An earlier version of this note claimed a
+judge call on 112 of 114 retail tasks; that describes later tau2 trees, which do add
+LLM-judge reviewers, not this one. Use `all` for numbers comparable to InfoPO.
 
 `_shape_task_reward` in `vllm_rollout.py` passes tau2's score through unchanged; do not
 re-binarise it or the partial credit is discarded.
+
+## Native tool-calling protocol (InfoPO alignment)
+
+The harness originally spoke a ReAct text protocol: the policy document, a rendered
+tool-signature table and a `Thought:/Action:` format block went in as a *user* turn
+followed by an `Ok.` assistant turn, actions were pulled out of the text with a regex,
+and every observation came back as a user turn. That is not how InfoPO trains and not
+how `tau2 run` evaluates. Checked against InfoPO's released `train.parquet` and
+`examples/tau2/train.sh`:
+
+| | InfoPO training | `TAU2_PROMPT_VARIANT=native` + `NATIVE_TOOLS=True` |
+|---|---|---|
+| prompt | tau2's stock agent prompt as the **system** message: six lines and `<policy>…</policy>`, nothing else | byte-identical (verified for all three domains) |
+| tools | the domain's tool schemas, natively (`extra_info.tool_schemas`: retail 15, airline 14, telecom 13, no `done`) | the same schemas, rendered as text exactly as Qwen2.5's template renders `tools=` (token-identical, verified) |
+| action | `<tool_call>{"name":…,"arguments":{…}}</tool_call>`; plain text = message to the customer | same; forwarded to tau2 as ToolCall JSON / text |
+| observation | tool results as `tool`-role messages, customer replies as user turns | same (`RolloutHandler.add_tool_message`) |
+| customer | gpt-4o-mini @ temperature 0.7 | `TAU2_USER_TEMPERATURE=0.7` in the `infopo` preset |
+
+Rendering the tools block as text rather than passing `tools=` keeps the dataset's
+tokenized prompt and the rollout's re-rendered generation prompt identical, which the
+handler relies on. One tokenization subtlety decides that equality for tool results:
+the content and the closing `</tool_response>` must be encoded together, because
+Qwen's pre-tokenizer merges a closing `}` with the newline after it.
+`tests/test_tau2_native_protocol.py` pins both invariants.
+
+What could not be recovered from InfoPO's public code: the `Tau2Env` wrapper their
+verl fork instantiates is not in the repository, so how the first customer message is
+injected and how their `use_nl_assertions` flags map to a reward are inferred, not
+read. The algorithm is also different by design: their published numbers are
+`info_grpo` with the intrinsic reward; the `infopo` preset here is plain GRPO with
+their hyperparameters and interface, i.e. the baseline their method is compared to.
+
+
+### Action forecasting (CoPE) under the native protocol
+
+`scripts/launch_tau2_cope_tmux.sh` is the GRPO launcher with the action-forecast auxiliary
+loss on (weight 0.1, `gate=wins`, `group_norm`, `skip_invalid`, K=3). The forecast helpers in
+`src/verl/agent_trainer/ppo/action_forecast.py` assumed the ReAct layout (action turns at
+odd indices, `Action:` lines, user-role observations); a system-first conversation is now
+treated as the native layout — every assistant turn is an action, a tool call is forecast as
+one JSON line, a customer message as `say: ...`, tool-role results feed `skip_invalid`, and a
+result starting with `Error`/`Invalid turn` marks a failed action. Measured on one step of
+the infopo preset (4× RTX PRO 6000, same batch as the GRPO run): 19/160 winning trajectories
+gave 243 forecast samples (mean horizon 2.7), forecast SFT loss 1.26, +239 s per step on top
+of the 222 s policy update, peak GPU memory 90.3 GB (plain GRPO: 90–94 GB).
 
 ## Model size: this rollout is TP=1 only
 
@@ -155,6 +245,28 @@ Two fixes made while establishing this are kept because they are correct regardl
   `agent_fsdp_workers.py`. verl set that on the main group only; sub-groups created by
   `new_group()` fell back to NCCL's compiled-in 10-minute default, which a slow agent
   rollout can exceed.
+
+## vLLM >= 0.6.6 and Blackwell GPUs
+
+`agent_vllm_rollout` was written against verl's vendored vLLM 0.6.3 (`offload_model_weights`,
+`init/free_cache_engine`), and its version gate compared version strings, so a newer
+vLLM was rejected at import with `cannot import name 'vLLMRollout'`. Blackwell (sm_120)
+cards need CUDA 12.8 / torch 2.7 / vLLM 0.9, and 0.6.3 has no kernels for them, so
+this was not a downgrade situation. The rollout now drives either engine:
+
+- **>= 0.6.6**: the stock `LLM` through `distributed_executor_backend="external_launcher"`
+  with `enable_sleep_mode`, `load_format=dummy` (weights arrive from FSDP through the
+  sharding manager, which already handled this path with `sleep()`/`wake_up()`), an
+  explicit `seed`, and a shim that reproduces the vendored engine's padded-tensor
+  return contract. The agent loop is untouched.
+- The training script pins **`VLLM_USE_V1=0`**: the sharding manager loads dtensor
+  weights through `llm_engine.model_executor.driver_worker`, a V0 path.
+- `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` is set only for <= 0.6.3: sleep
+  mode allocates through a memory pool, and torch refuses to combine the two
+  (pytorch#147851, "Expandable segments are not compatible with memory pool").
+
+Validated: 44 GRPO steps of Qwen2.5-7B-Instruct on RTX PRO 6000 Blackwell with vLLM
+0.9.2, solve rates on retail matching the numbers above.
 
 ## Comparing against published numbers (InfoPO)
 
@@ -361,6 +473,28 @@ The binary column is two independent runs' worth of flat (−0.25 se and +0.02 s
 the contrast is not a seed artifact. The dense run is a single seed — repeat it before
 treating 16.4% as a number rather than a direction.
 
+
+### Evaluation of the trained policy (τ² CLI, test split, Avg@4)
+
+`global_step_50` of the run above (49 policy steps of plain GRPO), merged to HF and evaluated
+through tau2's own CLI at c5b2d22 exactly as the base row was: test split, 4 trials per task,
+max_steps 200, agent temperature 0, gpt-4o-mini-2024-07-18 customer at temperature 0.
+
+| domain | base (measured here) | GRPO step 50 | pass^4 (any of 4) | paper: Qwen2.5-7B prompting | paper: InfoPO |
+|---|---|---|---|---|---|
+| airline (20 tasks) | 8.8 | **26.2** | 40.0 | 7.5 | 16.3 |
+| retail (40 tasks) | 9.4 | **17.5** | 40.0 | 13.1 | 18.8 |
+| telecom (40 tasks) | 8.1 | **38.8** | 45.0 | 14.4 | 18.1 |
+| mean | 8.8 | **27.5** | — | 11.7 | 17.7 |
+
+1 se is about 2.3 points. Remaining failures are mostly greedy-decoding loops on a failing
+tool call (tau2 ends the episode as `too_many_errors`: retail 31/160, airline 8/80,
+telecom 5/160) and telecom episodes that hit the 200-step cap (21/160). Tool calls leaking
+into message content — the base model's telecom failure mode above — are gone (≤0.2% of
+assistant turns). Two domain runs died once with `ContextWindowExceededError` on a looping
+episode (this tau2 version does not catch it per task) and were resumed; the affected pairs
+score 0 either way.
+
 ## Verification
 
 Stages 0–2 need no GPU. Stage 3 onward does.
@@ -425,3 +559,25 @@ comparing anything.
 - **Context budget.** The retail policy plus rendered tool signatures is ~2.5k tokens of
   prompt, hence `MAX_PROMPT_LENGTH=8192` / `MAX_MODEL_LEN=32768` (webshop uses 2048 /
   16384).
+- **Conversations that outgrow the engine window used to take the whole batch down.**
+  `get_generation_prompt` re-renders the full message list and had no cap of its own;
+  `truncate_output_ids` only trims the training tensors after the loop. Once a
+  conversation passed `min(max_model_len, prompt_length + response_length)` vLLM
+  rejected the request outside `agent_step`'s try, and every other trajectory in the
+  batch died with it (run 115123, step 16, 12446 > 12288 tokens). The rollout now ends
+  such a trajectory the way running out of rounds does and logs how many it evicted
+  per round. With the paper's 8192 + 16384 window this fires on ~0.3% of episodes.
+- **Listening ports must sit below 32768.** The kernel hands out ephemeral source
+  ports from 32768-60999, so an env server bound inside that range can lose its port
+  to any outbound connection (the customer API, a previous run's TIME_WAIT sockets)
+  and die with `EADDRINUSE`. Defaults are now 20301 (customer) and 20401+ (env servers).
+- **Checkpoints are 86GB each** (FSDP shards of a 7B with optimizer state). Set
+  `CKPT_DIR` to a large disk before a long run; a full root filesystem kills the
+  final save and everyone else's jobs with it.
+
+- **Step metrics can vanish from `train.log` while training continues.** They are
+  printed by a Ray task (`main_task`), and Ray's worker-to-driver log forwarding was
+  observed to stop ~2 minutes into a run (progress bars from rank 0 kept arriving,
+  nothing from `main_task` did). Ray still writes that task's stdout to its session
+  directory; the pipeline links it as `runlogs/<exp>/main_task.out`, which is the
+  file to read -- the wandb offline run has the same numbers.

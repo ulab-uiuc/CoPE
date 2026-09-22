@@ -65,11 +65,46 @@ ACTION_FORECAST_ENABLE="${ACTION_FORECAST_ENABLE:-False}"
 ACTION_FORECAST_COEF="${ACTION_FORECAST_COEF:-0}"
 ACTION_FORECAST_K="${ACTION_FORECAST_K:-3}"
 ACTION_FORECAST_SKIP_INVALID="${ACTION_FORECAST_SKIP_INVALID:-True}"
+# wins = every winning trajectory; mixed = only the wins of GRPO groups that also have a
+# loss, i.e. where GRPO itself learns. In tau2 the all-win groups are mostly tasks that
+# need no tool call, and distilling them taught a policy to stop calling tools (v7).
 ACTION_FORECAST_GATE="${ACTION_FORECAST_GATE:-wins}"
 ACTION_FORECAST_GROUP_NORM="${ACTION_FORECAST_GROUP_NORM:-True}"
 ACTION_FORECAST_SUCCESS_THRESHOLD="${ACTION_FORECAST_SUCCESS_THRESHOLD:-0.5}"
 ACTION_FORECAST_MAX_LENGTH="${ACTION_FORECAST_MAX_LENGTH:-4096}"
 ACTION_FORECAST_SEQ="${ACTION_FORECAST_SEQ:-separate}"
+# Target layout: 'turns' = the K actions as K assistant turns separated by a fixed user
+# prompt, loss on the assistant turns only; 'list' = K lines of one assistant turn (the
+# ReAct envs' construction). tau2's targets are literal spans of the policy's own turns
+# (multi-line <tool_call> blocks, full messages), so they need 'turns'; 'list' is rejected
+# for native envs.
+ACTION_FORECAST_LAYOUT="${ACTION_FORECAST_LAYOUT:-turns}"
+# Reweight the first token of each target turn (tool call vs message) so the forecast cannot
+# move the policy's tool-call rate; GRPO alone sets it. Without it the call-poor wins a weak
+# policy produces (refusals, guidance) pulled the call rate from ~30% to ~0 (v8).
+ACTION_FORECAST_BALANCE_CALLS="${ACTION_FORECAST_BALANCE_CALLS:-False}"
+# What the forecast predicts: 'all' = every action (tool calls and messages); 'calls' = the
+# policy's tool calls only, never its messages. v10 ('all', balanced) drifted from acting to
+# announcing from step 6 and lost its tool calls from step 11; with 'calls' the forecast
+# trains only which tool and which arguments (use with ACTION_FORECAST_BALANCE_CALLS=True).
+ACTION_FORECAST_TARGETS="${ACTION_FORECAST_TARGETS:-all}"
+# Give every target action the same weight in its sample's loss, whatever its length. Under
+# the plain token mean a tool call (median 33 tokens in v10) weighs a third of a message
+# (median 111): 26.7% of v10's target turns were calls but only 9.9% of its trained tokens.
+ACTION_FORECAST_LENGTH_NORM="${ACTION_FORECAST_LENGTH_NORM:-False}"
+# Skip a forecast sample whose K target actions contain no tool call, as invalid. Talk-only
+# wins (the customer fixed the phone themselves, or a refusal) otherwise teach the policy to
+# talk instead of act, in every domain.
+ACTION_FORECAST_SKIP_NO_CALL="${ACTION_FORECAST_SKIP_NO_CALL:-False}"
+# The forecast pass is its own Adam step per mini-batch of forecast samples. With the
+# default (= PPO_MINI_BATCH_SIZE, 16 samples) a tau2 step of ~300 samples is ~19 optimizer
+# steps on the auxiliary objective against 2 on the policy gradient, and under Adam the
+# coefficient does not change that step count or size. Raise this to bound the number of
+# forecast steps (e.g. 512 -> one step per training step).
+SFT_MINI_BATCH_SIZE="${SFT_MINI_BATCH_SIZE:-${PPO_MINI_BATCH_SIZE}}"
+# Learning-rate multiplier for the forecast step (1.0 = the policy lr). Under Adam the loss
+# coefficient barely changes the step size; this does.
+ACTION_FORECAST_LR_SCALE="${ACTION_FORECAST_LR_SCALE:-1.0}"
 POLICY_LR="${POLICY_LR:-1e-6}"
 ROLLOUT_N="${ROLLOUT_N:-8}"
 TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-16}"
@@ -125,6 +160,28 @@ export HF_HOME="${HF_HOME:-${ROOT}/.hf_cache}"
 export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-${HF_HOME}/datasets}"
 mkdir -p "${HF_DATASETS_CACHE}"
 
+# vLLM's sleep mode -- which the SPMD rollout enables and which
+# FSDPVLLMShardingManager drives with sleep()/wake_up() around every generation pass --
+# allocates through CuMemAllocator, and torch refuses to combine a memory pool with
+# expandable_segments (pytorch#147851): engine construction dies with "Expandable
+# segments are not compatible with memory pool". The vendored <=0.6.3 engine has no
+# sleep mode, so it keeps the original setting. Set PYTORCH_CUDA_ALLOC_CONF explicitly
+# to override either default.
+if [[ -z "${PYTORCH_CUDA_ALLOC_CONF+x}" ]]; then
+  if python - <<'PYEOF'
+import sys
+from importlib.metadata import version
+from packaging import version as v
+sys.exit(0 if v.parse(version('vllm')) <= v.parse('0.6.3') else 1)
+PYEOF
+  then
+    PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
+  else
+    PYTORCH_CUDA_ALLOC_CONF=""
+  fi
+fi
+echo "PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-<unset>}"
+
 cd "${TRAIN_CODE_DIR}"
 exec env \
   -u http_proxy -u https_proxy -u all_proxy \
@@ -140,9 +197,14 @@ exec env \
   HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}" \
   VLLM_USE_MODELSCOPE=0 \
   VLLM_WORKER_MULTIPROC_METHOD=spawn \
+  `# On vLLM >= 0.6.6 the rollout runs the SPMD engine, and FSDPVLLMShardingManager` \
+  `# loads the actor's dtensor weights through` \
+  `# llm_engine.model_executor.driver_worker.worker.model_runner.model -- a V0 path.` \
+  `# The V1 engine has no model_executor, so pin V0. Ignored by vLLM <= 0.6.3.` \
+  VLLM_USE_V1="${VLLM_USE_V1:-0}" \
   VLLM_ATTENTION_BACKEND=FLASH_ATTN \
   HYDRA_FULL_ERROR=1 \
-  PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+  ${PYTORCH_CUDA_ALLOC_CONF:+PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF}"} \
   WANDB_MODE="${WANDB_MODE}" \
   python -m verl.agent_trainer.main_ppo \
     algorithm.adv_estimator=grpo \
@@ -156,6 +218,9 @@ exec env \
     actor_rollout_ref.agentgym.task_name="${TASK_NAME}" \
     actor_rollout_ref.agentgym.env_addr="'${ENV_ADDR}'" \
     actor_rollout_ref.agentgym.timeout=2400 \
+    `# NATIVE_TOOLS=True pairs with TAU2_PROMPT_VARIANT=native on the env servers:` \
+    `# tau2's own tool-calling protocol instead of the ReAct text wrapper.` \
+    ${NATIVE_TOOLS:++actor_rollout_ref.agentgym.native_tools=${NATIVE_TOOLS}} \
     actor_rollout_ref.model.path="${MODEL_PATH}" \
     actor_rollout_ref.model.use_remove_padding="${USE_REMOVE_PADDING}" \
     actor_rollout_ref.actor.use_kl_loss="${USE_KL_LOSS:-True}" \
@@ -171,6 +236,13 @@ exec env \
     +actor_rollout_ref.actor.action_forecast_success_threshold="${ACTION_FORECAST_SUCCESS_THRESHOLD}" \
     +actor_rollout_ref.actor.action_forecast_max_length="${ACTION_FORECAST_MAX_LENGTH}" \
     +actor_rollout_ref.actor.action_forecast_seq="${ACTION_FORECAST_SEQ}" \
+    +actor_rollout_ref.actor.action_forecast_layout="${ACTION_FORECAST_LAYOUT}" \
+    +actor_rollout_ref.actor.action_forecast_balance_calls="${ACTION_FORECAST_BALANCE_CALLS}" \
+    +actor_rollout_ref.actor.action_forecast_targets="${ACTION_FORECAST_TARGETS}" \
+    +actor_rollout_ref.actor.action_forecast_length_norm="${ACTION_FORECAST_LENGTH_NORM}" \
+    +actor_rollout_ref.actor.action_forecast_skip_no_call="${ACTION_FORECAST_SKIP_NO_CALL}" \
+    +actor_rollout_ref.actor.sft_mini_batch_size="${SFT_MINI_BATCH_SIZE}" \
+    +actor_rollout_ref.actor.action_forecast_lr_scale="${ACTION_FORECAST_LR_SCALE}" \
     actor_rollout_ref.actor.ppo_epochs="${PPO_EPOCHS}" \
     actor_rollout_ref.actor.optim.lr="${POLICY_LR}" \
     actor_rollout_ref.actor.ppo_mini_batch_size="${PPO_MINI_BATCH_SIZE}" \

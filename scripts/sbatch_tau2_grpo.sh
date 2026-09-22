@@ -32,7 +32,7 @@ cd "${ROOT}"
 
 MODEL_PATH="${MODEL_PATH:?set MODEL_PATH to the policy checkpoint}"
 USERSIM_MODEL="${USERSIM_MODEL:-${MODEL_PATH}}"
-USERSIM_PORT="${USERSIM_PORT:-38101}"
+USERSIM_PORT="${USERSIM_PORT:-20311}"
 # 40GB cards: a 14B is 28GB of bf16 weights, so both the rollout engine and the user
 # simulator need to be sharded. Defaults below are sized for 7B; override for larger.
 # USERSIM_GPUS is derived from USERSIM_TP rather than passed in -- a comma-separated
@@ -51,7 +51,10 @@ USERSIM_TP="${USERSIM_TP:-1}"
 USERSIM_GPUS="$(seq -s, 0 $((USERSIM_TP - 1)))"
 USERSIM_GPU_MEM_UTIL="${USERSIM_GPU_MEM_UTIL:-0.45}"
 SERVED_NAME=user-sim
-BASE_PORT="${BASE_PORT:-36301}"
+# Listening ports stay below 32768: the kernel hands out ephemeral source ports from
+# 32768-60999 (see /proc/sys/net/ipv4/ip_local_port_range), and a listener inside that
+# range can lose its port to an outbound connection -- EADDRINUSE at startup.
+BASE_PORT="${BASE_PORT:-20501}"
 ENVS_PER_GPU="${ENVS_PER_GPU:-4}"
 
 TAU2_DOMAIN="${TAU2_DOMAIN:-retail}"

@@ -959,8 +959,11 @@ class RayPPOTrainer(object):
         # group_norm: give each group's successes equal total forecast-CE weight
         # (needs uid aligned to rollout_messages). Default off.
         group_norm = bool(actor_cfg.get('action_forecast_group_norm', False))
+        gate = str(actor_cfg.get('action_forecast_gate', 'wins'))
         group_ids = None
-        if group_norm:
+        # gate='mixed' keeps only the wins of groups that also have a loss, so it needs
+        # the GRPO group id as well
+        if group_norm or gate == 'mixed':
             _uid = batch.non_tensor_batch.get('uid', None)
             if _uid is not None:
                 group_ids = list(_uid)
@@ -970,7 +973,7 @@ class RayPPOTrainer(object):
             tokenizer=self.tokenizer,
             rewards=rewards,
             k=int(actor_cfg.get('action_forecast_k', 3)),
-            gate=str(actor_cfg.get('action_forecast_gate', 'wins')),
+            gate=gate,
             success_threshold=float(actor_cfg.get('action_forecast_success_threshold', 0.5)),
             max_length=int(actor_cfg.get('action_forecast_max_length', 4096)),
             max_samples_per_trajectory=actor_cfg.get('action_forecast_max_samples_per_traj', None),
@@ -978,6 +981,21 @@ class RayPPOTrainer(object):
             env=env_name,
             group_ids=group_ids,
             group_norm=group_norm,
+            # 'list' (default): K actions as K lines of one assistant turn; 'turns': K
+            # assistant turns, the layout that does not double as Qwen's parallel-call
+            # format under tau2's native protocol (see action_forecast.py).
+            layout=str(actor_cfg.get('action_forecast_layout', 'list')),
+            # reweight the call-vs-message decision token of each target turn so the
+            # forecast cannot move the policy's tool-call rate (see action_forecast.py)
+            balance_calls=bool(actor_cfg.get('action_forecast_balance_calls', False)),
+            # 'all' (default): tool calls and messages; 'calls': the policy's tool calls
+            # only, never its messages (native tool-calling envs; see action_forecast.py)
+            targets=str(actor_cfg.get('action_forecast_targets', 'all')),
+            # every target action gets the same weight in its sample's loss, whatever its
+            # length (tool calls are ~3x shorter than messages; see action_forecast.py)
+            length_norm=bool(actor_cfg.get('action_forecast_length_norm', False)),
+            # a sample whose K target actions contain no tool call is skipped (see action_forecast.py)
+            skip_no_call=bool(actor_cfg.get('action_forecast_skip_no_call', False)),
         )
         if assembled is None:
             return None, meta
