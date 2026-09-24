@@ -79,11 +79,19 @@ def _action_token_mask(tokenizer, content: str, response_ids, task_name: str):
 
 
 class Message:
-    def __init__(self, role: str, content: str):
+    def __init__(self, role: str, content: str, error: bool = False):
         self.role = role
         self.content = content
+        # tau2 marks a failed tool call structurally (ToolMessage.error); carrying the
+        # flag here is what lets the forecast tell "the call failed" from "the result
+        # merely contains the word Error". Emitted only when set, so every dump that
+        # existed before is byte-identical.
+        self.error = error
     def to_dict(self):
-        return {'role': self.role, 'content': self.content}
+        d = {'role': self.role, 'content': self.content}
+        if self.error:
+            d['error'] = True
+        return d
     def __repr__(self):
         return str(self.to_dict())
     def __str__(self):
@@ -147,6 +155,8 @@ class RolloutHandler:
                 # tool-role observation, rendered by Qwen2.5's template as a user turn
                 # wrapping the content in <tool_response> tags.
                 "tool_prefix_msg": "\n<|im_start|>user\n<tool_response>\n",
+                # continuing an open tool turn (several results for one turn's calls)
+                "tool_open_msg": "<tool_response>\n",
                 "tool_close_msg": "\n</tool_response>",
                 "tool_suffix_msg": "<|im_end|>",
             }
@@ -274,6 +284,7 @@ class RolloutHandler:
         tokenizer: PreTrainedTokenizer,
         content: str,
         format: Literal["qwen"] = "qwen",
+        error: bool = False,
     ) -> None:
         """Append a tool result as a `tool`-role message (native tool-calling protocol).
 
@@ -287,34 +298,68 @@ class RolloutHandler:
         The special tokens on either side never merge, so they are encoded alone.
         """
         content = content.lstrip()
-        # A tool result answers a tool call, so it can only follow an assistant turn.
-        # The token suffix alone cannot tell (user and assistant turns both end in
-        # <|im_end|>); the message list can.
-        if not self.messages or self.messages[-1].role != "assistant":
+        # A tool result answers a tool call, so it can only follow an assistant turn --
+        # or another tool result, when one turn made several tool calls and the env
+        # returned one result per call. The token suffix alone cannot tell (user and
+        # assistant turns both end in <|im_end|>); the message list can.
+        prev_role = self.messages[-1].role if self.messages else 'no messages'
+        if prev_role not in ("assistant", "tool"):
             raise ValueError(
-                f"tool message must follow an assistant turn, got "
-                f"{self.messages[-1].role if self.messages else 'no messages'}")
-        msg = Message(role='tool', content=content)
-        self.messages.append(msg)
+                f"tool message must follow an assistant turn or another tool result, "
+                f"got {prev_role}")
+        msg = Message(role='tool', content=content, error=error)
         assert format in self.format_config.keys(), f"format {format} not supported"
-        prefix_token_ids = tokenizer.encode(self.format_config[format]["tool_prefix_msg"],
-                                            add_special_tokens=False)
-        body_token_ids = tokenizer.encode(content + self.format_config[format]["tool_close_msg"],
-                                          add_special_tokens=False)
-        suffix_token_ids = tokenizer.encode(self.format_config[format]["tool_suffix_msg"],
-                                            add_special_tokens=False)
-        assistant_suffix_ids = tokenizer.encode(self.format_config[format]["assistat_suffix_msg"],
-                                                add_special_tokens=False)
-        if self.input_ids[-len(assistant_suffix_ids):] != assistant_suffix_ids:
-            max_len = len(assistant_suffix_ids)
-            raise ValueError(
-                f"""Unsupported end of message format before a tool message:
-                {tokenizer.decode(self.input_ids[-max_len:])}"""
-            )
-        append_token_ids = prefix_token_ids + body_token_ids + suffix_token_ids
+        fc = self.format_config[format]
+
+        def _block(contents):
+            """(token ids, observation mask) for ONE user turn holding these results.
+
+            The template writes them as
+              \\n<|im_start|>user\\n<tool_response>\\nR1\\n</tool_response>
+              \\n<tool_response>\\nR2\\n</tool_response><|im_end|>
+            Each result is encoded together with everything up to the next result's
+            first character: Qwen's pre-tokenizer merges a closing '}' or '>' with the
+            newline after it, so splitting there would cost a token against the
+            template's own rendering.
+            """
+            ids = tokenizer.encode(fc["tool_prefix_msg"], add_special_tokens=False)
+            obs = [0] * len(ids)
+            for i, c in enumerate(contents):
+                tail = (fc["tool_close_msg"] + "\n" + fc["tool_open_msg"]
+                        if i != len(contents) - 1 else fc["tool_close_msg"])
+                piece = tokenizer.encode(c + tail, add_special_tokens=False)
+                ids += piece
+                obs += [1] * len(piece)
+            suf = tokenizer.encode(fc["tool_suffix_msg"], add_special_tokens=False)
+            return ids + suf, obs + [0] * len(suf)
+
+        # Results for several calls of one turn share a user turn, so a continuation
+        # rewrites the block instead of opening a new one.
+        prev_contents = []
+        if prev_role == "tool":
+            for m in reversed(self.messages):
+                if m.role != "tool":
+                    break
+                prev_contents.insert(0, m.content)
+            old_ids, _ = _block(prev_contents)
+            if self.input_ids[-len(old_ids):] != old_ids:
+                raise ValueError("the open tool turn does not match what was written for it")
+            for lst in (self.input_ids, self.attention_mask, self.position_ids,
+                        self.loss_mask, self.observation_mask, self.turn_ids):
+                del lst[-len(old_ids):]
+        self.messages.append(msg)
+        append_token_ids, _observation_mask = _block(prev_contents + [content])
+        prefix_token_ids = body_token_ids = suffix_token_ids = []
+        if prev_role == "assistant":
+            assistant_suffix_ids = tokenizer.encode(self.format_config[format]["assistat_suffix_msg"],
+                                                    add_special_tokens=False)
+            if self.input_ids[-len(assistant_suffix_ids):] != assistant_suffix_ids:
+                max_len = len(assistant_suffix_ids)
+                raise ValueError(
+                    f"""Unsupported end of message format before a tool message:
+                    {tokenizer.decode(self.input_ids[-max_len:])}"""
+                )
         _loss_mask = [0] * len(append_token_ids)
-        _observation_mask = ([0] * len(prefix_token_ids) + [1] * len(body_token_ids)
-                             + [0] * len(suffix_token_ids))
         self.input_ids += append_token_ids
         self.turn_ids += [-1] * len(append_token_ids)   # observations are no action turn
         self.attention_mask += [1] * len(append_token_ids)

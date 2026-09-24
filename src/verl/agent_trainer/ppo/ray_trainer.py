@@ -996,6 +996,9 @@ class RayPPOTrainer(object):
             length_norm=bool(actor_cfg.get('action_forecast_length_norm', False)),
             # a sample whose K target actions contain no tool call is skipped (see action_forecast.py)
             skip_no_call=bool(actor_cfg.get('action_forecast_skip_no_call', False)),
+            # a WINNING trajectory that never ran a tool call is dropped whole: those are
+            # the tasks a talk-only episode already scores 1.0 on (see action_forecast.py)
+            require_action=bool(actor_cfg.get('action_forecast_require_action', False)),
         )
         if assembled is None:
             return None, meta
@@ -1217,6 +1220,20 @@ class RayPPOTrainer(object):
                             actor_output = self.actor_rollout_wg.update_actor(batch)
                         actor_output_metrics = reduce_metrics(actor_output.meta_info['metrics'])
                         metrics.update(actor_output_metrics)
+
+                        # Format drift of the policy itself, every step and whether or
+                        # not the forecast is on: the τ² forecast failures showed up here
+                        # (bare JSON, compact JSON, several calls in one turn) steps before
+                        # the reward moved. Cheap: it reads the rollout messages already in
+                        # the batch.
+                        try:
+                            _msgs = batch.non_tensor_batch.get('rollout_messages', None)
+                            if _msgs is not None and str(self.config.actor_rollout_ref.agentgym.get(
+                                    'task_name', '')).lower() == 'tau2':
+                                from verl.agent_trainer.ppo.action_forecast import policy_format_metrics
+                                metrics.update(policy_format_metrics(list(_msgs)))
+                        except Exception as e:
+                            print(f"[policy_format_metrics] skipped: {e}", flush=True)
 
                         # Optional action-forecast SFT update: predict the realized
                         # next-K actions (the "forecast"), supervised by what actually

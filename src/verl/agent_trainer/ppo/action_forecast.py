@@ -204,6 +204,75 @@ def _native_tool_name(action: str) -> Optional[str]:
     return m.group(1) if m else action
 
 
+# Tool-error classes, measured over 271 real tau2 tool errors (38.9% of all tool
+# results): the class decides whether the action is worth forecasting at all.
+#   missing (20.7%)  the tool does not exist -- mostly telecom, where the policy calls
+#                    the CUSTOMER's device tools. Nothing correct to learn from it.
+#   badargs (1.5%)   right tool, wrong arguments (TypeError, argument constraints).
+#                    The call itself is broken, so it is never a target.
+#   entity  (69.7%)  "Order not found" -- the call is well formed, the thing is not
+#                    there. Usually informative (ask the customer, look it up another
+#                    way), so it is kept unless the same tool later succeeded.
+#   rule    (6.6%)   "Non-pending order cannot be cancelled" -- the domain refuses.
+#                    The highest-information failure there is: it tells the policy the
+#                    request is impossible, so it is ALWAYS kept.
+_ERR_MISSING_TOOL = re.compile(r"^\s*error:\s*tool\s+'[^']*'\s+not found", re.I)
+_ERR_BAD_ARGS = re.compile(r"unexpected keyword argument|missing \d+ required|"
+                           r"takes \d+ positional|could not parse arguments|"
+                           r"validation error|should match", re.I)
+_ERR_ENTITY = re.compile(r"not found", re.I)
+
+
+def classify_tool_error(result: str, is_error: Optional[bool] = None) -> str:
+    """'ok' | 'missing' | 'badargs' | 'entity' | 'rule' for one tool result.
+
+    ``is_error`` is tau2's own ToolMessage.error, carried out of the env server; the
+    text is only used to tell the failure classes apart. Without the flag (older
+    rollout dumps, other envs) the "Error" prefix stands in for it.
+    """
+    text = result or ""
+    failed = is_error if is_error is not None else text.strip().lower().startswith(_TAU2_INVALID_PREFIXES)
+    if not failed:
+        return "ok"
+    if _ERR_MISSING_TOOL.match(text):
+        return "missing"
+    if _ERR_BAD_ARGS.search(text):
+        return "badargs"
+    if _ERR_ENTITY.search(text):
+        return "entity"
+    return "rule"
+
+
+def has_executed_action(messages) -> bool:
+    """True if the trajectory actually ran a tool call (a tool-role result came back).
+
+    A τ² episode can WIN without doing anything: 17 of the 178 training tasks (13 of
+    airline's 30) are "the customer asks for something the policy forbids", their
+    ground-truth actions are all read-only, and the reward compares the database
+    against that ground truth -- so an agent that only talks matches it, the customer
+    says ###STOP###, and the episode scores 1.0. Measured on the v10 rollouts: winning
+    episodes averaged 1.3 tool calls against 3.2 for losing ones, and by step 15, 63% of
+    the wins had made no call at all. Distilling those wins is what teaches the policy
+    to stop acting, so they are dropped from the forecast's source.
+    """
+    return any((m.get('role') if isinstance(m, dict) else getattr(m, 'role', None)) == 'tool'
+               for m in _to_chat_list(messages))
+
+
+def _turn_results(convo, ai):
+    """Every observation message produced by action turn ``ai`` -- a turn with several
+    tool calls gets one result per call, so the run of tool/user messages after it is
+    what the action actually produced."""
+    out = []
+    j = ai + 1
+    while j < len(convo) and convo[j].get('role') in ('tool', 'user'):
+        out.append(convo[j])
+        if convo[j].get('role') == 'user':      # the customer's reply ends the run
+            break
+        j += 1
+    return out
+
+
 def _native_effective(convo, action_idxs, actions_seq, env: str) -> List[bool]:
     """skip_invalid for the native tool-calling protocol: an action is dropped only if it
     was wasted AND redone later -- the meaning skip_invalid has in the ReAct envs
@@ -224,26 +293,34 @@ def _native_effective(convo, action_idxs, actions_seq, env: str) -> List[bool]:
     so it cut the tool-call share of the targets to 24.7% against the policy's 31.3%
     (30.3% with no skipping, 29.5% with this rule), biasing the forecast toward talking.
     """
-    names, failed, missing = [], [], []
+    names, kinds = [], []
     for ai, a in zip(action_idxs, actions_seq):
         name = _native_tool_name(a or "")
-        res = (convo[ai + 1]['content'] if (ai + 1 < len(convo)
-               and convo[ai + 1].get('role') in ('user', 'tool')) else '')
         names.append(name)
-        failed.append(name is not None and is_invalid_outcome(res, env))
-        missing.append(name is not None and bool(_TAU2_TOOL_NOT_FOUND_RE.match(res or '')))
+        # A turn can make several calls, so its outcome is the WORST of its results:
+        # judging it by the first one alone made a turn whose second call failed look
+        # clean (and the other way round).
+        cls = [classify_tool_error(m.get('content', ''), m.get('error'))
+               for m in _turn_results(convo, ai) if m.get('role') == 'tool']
+        order = {"ok": 0, "entity": 1, "rule": 2, "badargs": 3, "missing": 4}
+        kinds.append(max(cls, key=lambda c: order[c]) if cls else "ok")
     valid: List[bool] = []
     seen_messages = set()
     for j, a in enumerate(actions_seq):
         if not a:
             valid.append(True)               # empty turns are filtered by the caller anyway
         elif names[j] is not None:
-            if missing[j]:                   # the tool does not exist: never a valid action
-                valid.append(False)
-                continue
-            redone = failed[j] and any(names[k] == names[j] and not failed[k]
-                                       for k in range(j + 1, len(actions_seq)))
-            valid.append(not redone)
+            k = kinds[j]
+            if k in ("missing", "badargs"):
+                valid.append(False)          # nothing correct in the call itself
+            elif k == "rule":
+                valid.append(True)           # the domain's refusal is information
+            elif k == "entity":
+                # wasted only if the same tool is called again later and works
+                valid.append(not any(names[i] == names[j] and kinds[i] == "ok"
+                                     for i in range(j + 1, len(actions_seq))))
+            else:
+                valid.append(True)
         else:
             key = " ".join(a.split())
             valid.append(key not in seen_messages)
@@ -295,6 +372,20 @@ def build_action_targets(messages, k: int = 3, skip_invalid: bool = False,
     action_idxs = _action_turn_indices(convo)
     actions_seq = [extract_action(convo[ai]['content'], env=env) for ai in action_idxs]
 
+    # A turn with SEVERAL tool calls is not representable as a target: extract_action cuts
+    # the first <tool_call> block out of it, while the env server now executes every call
+    # in the turn (agentenv_tau2 `native_multicall`, as tau2 does at evaluation). Rather
+    # than re-serialise the turn -- which would break the rule that a target is a literal
+    # substring of what the policy wrote, the rule three earlier versions were spent
+    # establishing -- such a turn is left out of the forecast: it is neither an anchor nor
+    # a target item. Measured on the v10 rollouts these are 0.4-1.0% of assistant turns,
+    # so the cost is small; `policy/multicall_share` is the metric that says when it stops
+    # being small.
+    if (env or "").lower() in _NATIVE_TOOL_ENVS:
+        for j, ai in enumerate(action_idxs):
+            if len(_TOOL_CALL_SPAN_RE.findall(convo[ai].get('content') or '')) >= 2:
+                actions_seq[j] = ""
+
     if skip_invalid and (env or "").lower() in _NATIVE_TOOL_ENVS:
         valid_seq = _native_effective(convo, action_idxs, actions_seq, env)
     elif skip_invalid:
@@ -319,7 +410,13 @@ def build_action_targets(messages, k: int = 3, skip_invalid: bool = False,
                 out.append({'prefix_end': ai - 1, 'actions': [actions_seq[j] for j in sel],
                             'action_turns': sel, 'src_turn': n})
         return out
+    native = (env or "").lower() in _NATIVE_TOOL_ENVS
     for n, ai in enumerate(action_idxs):
+        # No anchor on a turn whose own action is not representable (empty turn, or the
+        # multi-call turn blanked above): the prompt says "starting with the action you
+        # take right now", and the next action is not that.
+        if native and not actions_seq[n]:
+            continue
         if skip_invalid:
             # look past invalid actions: next-K *effective* actions from step n on
             fut = [actions_seq[j] for j in range(n, len(actions_seq))
@@ -387,9 +484,12 @@ def build_action_forecast_samples(
     k = int(k)
     if layout not in ACTION_FORECAST_LAYOUTS:
         raise ValueError(f"action_forecast layout must be one of {ACTION_FORECAST_LAYOUTS}, got {layout!r}")
-    if (env or "").lower() in _NATIVE_TOOL_ENVS and layout != "turns":
-        raise ValueError(f"{env}: native tool-calling targets are literal multi-line spans of the policy's "
-                         "turns and need layout='turns' (set ACTION_FORECAST_LAYOUT=turns)")
+    # 'list' is allowed for the native envs again: K <tool_call> blocks in one assistant
+    # message ARE Qwen's rendering of several tool calls in one turn, and since the env
+    # server parses a native turn whole (agentenv_tau2 `native_multicall`), such a turn
+    # now executes every call -- the same behaviour tau2's own agent has at evaluation.
+    # The rest of the sample construction is unchanged; the targets stay literal spans of
+    # the policy's turns, joined by a newline the way the template joins parallel calls.
 
     if skip_no_call and (env or "").lower() not in _NATIVE_TOOL_ENVS:
         raise ValueError(f"action_forecast skip_no_call needs a native tool-calling env "
@@ -681,6 +781,7 @@ def build_action_forecast_batch(
     targets: str = "all",
     length_norm: bool = False,
     skip_no_call: bool = False,
+    require_action: bool = False,
 ):
     """Padded forecast-SFT batch over trajectories, with win/all gating.
 
@@ -733,9 +834,16 @@ def build_action_forecast_batch(
     skip_stats: Dict[str, int] = {}
     n_traj_used = 0
     n_traj_considered = 0
+    n_traj_no_action = 0
     traj_records = []   # (group_id, n_samples, start_idx) per distilled traj (group_norm)
     for i, messages in enumerate(messages_list):
         if messages is None or not keep[i]:
+            continue
+        # A win that never ran a tool call is a talk-only win (see has_executed_action):
+        # distilling it teaches the policy to stop acting, which is the failure the τ²
+        # forecast runs kept reproducing.
+        if require_action and (env or "").lower() in _NATIVE_TOOL_ENVS and not has_executed_action(messages):
+            n_traj_no_action += 1
             continue
         n_traj_considered += 1
         traj_samples = build_action_forecast_samples(
@@ -865,6 +973,8 @@ def build_action_forecast_batch(
             "action_forecast/targets_calls": 1.0 if targets == "calls" else 0.0,
             "action_forecast/skip_no_call": 1.0 if skip_no_call else 0.0,
             "action_forecast/n_skipped_no_call": float(skip_stats.get('skipped_no_call', 0)),
+            "action_forecast/require_action": 1.0 if require_action else 0.0,
+            "action_forecast/n_traj_dropped_no_action": float(n_traj_no_action),
             **balance_meta,
             "action_forecast/k": float(k_mean)}
     if group_norm and traj_records:
@@ -897,3 +1007,60 @@ def build_action_forecast_batch(
             "action_forecast/batch_loss_weight_max": float(max(_w)) if _w else 1.0,
         })
     return batch, meta
+
+
+# ---- policy-format monitoring ---------------------------------------------------------
+# What the forecast can break, watched per step. The τ² forecast runs all failed the same
+# way: the policy drifted toward a surface form the target used and the environment does
+# not execute (bare JSON in v2, compact JSON in v5, several calls in one turn in v4), and
+# that showed in the rollouts long before it showed in the reward. sciworld's own forecast
+# run does the same thing at 27x the control's rate (bare commands 0.22% -> 5.84% of turns,
+# every one of them a wasted turn), so this is not a τ²-only risk.
+_BARE_JSON_CALL_RE = re.compile(r'^\s*\{\s*"(?:name|arguments)"\s*:', re.M)
+_OPEN_TAG_RE = re.compile(r"<tool_call>")
+_CLOSE_TAG_RE = re.compile(r"</tool_call>")
+
+
+def policy_format_metrics(messages_list, prefix: str = "policy") -> Dict[str, float]:
+    """Per-step shares of the policy's own turns, for the native tool-calling protocol.
+
+    ``<prefix>/call_turn_share``   turns that carry at least one tool call
+    ``<prefix>/multicall_share``   turns with 2+ calls (the env now runs them all, but a
+                                   turn the reward never asked for is still a drift signal)
+    ``<prefix>/malformed_share``   turns whose <tool_call> tags do not pair up -- seen in
+                                   the v10 rollouts, where three opening tags and one
+                                   closing tag sent the whole turn to the customer as text
+    ``<prefix>/bare_json_share``   a call written without the tags (the v2 failure)
+    ``<prefix>/no_call_episodes``  episodes that never called a tool
+    """
+    turns = calls = multi = malformed = bare = 0
+    eps = nocall_eps = 0
+    for msgs in messages_list or []:
+        if msgs is None:
+            continue
+        eps += 1
+        ep_calls = 0
+        for m in _to_chat_list(msgs):
+            if m.get('role') != 'assistant':
+                continue
+            c = m.get('content') or ''
+            turns += 1
+            n_open, n_close = len(_OPEN_TAG_RE.findall(c)), len(_CLOSE_TAG_RE.findall(c))
+            n_span = len(_TOOL_CALL_SPAN_RE.findall(c))
+            if n_span:
+                calls += 1
+                ep_calls += n_span
+            if n_span >= 2:
+                multi += 1
+            if n_open != n_close:
+                malformed += 1
+            if _BARE_JSON_CALL_RE.search(_TOOL_CALL_SPAN_RE.sub('', c)):
+                bare += 1
+        nocall_eps += (ep_calls == 0)
+    t = max(turns, 1)
+    return {f"{prefix}/call_turn_share": calls / t,
+            f"{prefix}/multicall_share": multi / t,
+            f"{prefix}/malformed_share": malformed / t,
+            f"{prefix}/bare_json_share": bare / t,
+            f"{prefix}/no_call_episodes": nocall_eps / max(eps, 1),
+            f"{prefix}/assistant_turns": float(turns)}

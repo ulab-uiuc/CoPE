@@ -112,7 +112,11 @@ case "${PRESET}" in
     # reach the 24576 window), and two such sequences in one backward OOM'd a 95GB card
     # at step 3. Micro-batch 1 is the same gradient, computed in two halves.
     : "${PPO_MICRO_BATCH_SIZE_PER_GPU:=1}" "${POLICY_LR:=1e-6}"
-    : "${USE_KL_LOSS:=False}" "${KL_COEF:=0}" "${ENTROPY_COEF:=0.001}"
+    # Deliberate deviation from InfoPO, who train tau2 with no KL term at all
+    # (use_kl_loss=False, coef 0): the KL-to-reference loss is ON here at 0.001, the
+    # value every other environment in this repo uses. Set USE_KL_LOSS=False KL_COEF=0
+    # to get the paper's setting back.
+    : "${USE_KL_LOSS:=True}" "${KL_COEF:=0.001}" "${ENTROPY_COEF:=0.001}"
     : "${TOTAL_EPOCHS:=10}" "${MAX_ROUNDS:=50}" "${MAX_TOKENS_PER_TURN:=1024}"
     : "${MAX_PROMPT_LENGTH:=8192}" "${MAX_RESPONSE_LENGTH:=16384}" "${MAX_MODEL_LEN:=24576}"
     : "${ROLLOUT_GPU_MEMORY_UTILIZATION:=0.50}" "${SAVE_FREQ:=15}" "${TAU2_MAX_STEPS:=200}"
@@ -184,7 +188,7 @@ echo "domains    : ${TAU2_DOMAIN}/${TAU2_TASK_SPLIT}   file: $(basename "${TRAIN
 echo "reward     : ${TAU2_REWARD_SHAPE}/${TAU2_REWARD_BASIS}   prompt=${TAU2_PROMPT_VARIANT}   native_tools=${NATIVE_TOOLS:-False}   user_temp=${TAU2_USER_TEMPERATURE}"
 echo "batch=${TRAIN_BATCH_SIZE} n=${ROLLOUT_N} mini=${PPO_MINI_BATCH_SIZE} rounds=${MAX_ROUNDS} epochs=${TOTAL_EPOCHS} lr=${POLICY_LR} kl=${USE_KL_LOSS}"
 if [[ "${ACTION_FORECAST_ENABLE:-False}" == "True" ]]; then
-  echo "forecast   : ON  coef=${ACTION_FORECAST_COEF:-0} k=${ACTION_FORECAST_K:-3} gate=${ACTION_FORECAST_GATE:-wins} skip_invalid=${ACTION_FORECAST_SKIP_INVALID:-True} group_norm=${ACTION_FORECAST_GROUP_NORM:-True} max_len=${ACTION_FORECAST_MAX_LENGTH:-4096} sft_mini_batch=${SFT_MINI_BATCH_SIZE:-${PPO_MINI_BATCH_SIZE}} lr_scale=${ACTION_FORECAST_LR_SCALE:-1.0} layout=${ACTION_FORECAST_LAYOUT:-turns} balance_calls=${ACTION_FORECAST_BALANCE_CALLS:-False} targets=${ACTION_FORECAST_TARGETS:-all} length_norm=${ACTION_FORECAST_LENGTH_NORM:-False} skip_no_call=${ACTION_FORECAST_SKIP_NO_CALL:-False}"
+  echo "forecast   : ON  coef=${ACTION_FORECAST_COEF:-0} k=${ACTION_FORECAST_K:-3} gate=${ACTION_FORECAST_GATE:-wins} skip_invalid=${ACTION_FORECAST_SKIP_INVALID:-True} group_norm=${ACTION_FORECAST_GROUP_NORM:-True} max_len=${ACTION_FORECAST_MAX_LENGTH:-12288} sft_mini_batch=${SFT_MINI_BATCH_SIZE:-auto(=ppo_mini*n/gpus)} lr_scale=${ACTION_FORECAST_LR_SCALE:-1.0} layout=${ACTION_FORECAST_LAYOUT:-list} balance_calls=${ACTION_FORECAST_BALANCE_CALLS:-False} targets=${ACTION_FORECAST_TARGETS:-all} length_norm=${ACTION_FORECAST_LENGTH_NORM:-False} skip_no_call=${ACTION_FORECAST_SKIP_NO_CALL:-False} require_action=${ACTION_FORECAST_REQUIRE_ACTION:-False}"
 else
   echo "forecast   : off (plain GRPO)"
 fi
@@ -199,7 +203,17 @@ fi
 cleanup() {
   echo "=== cleanup ==="
   [[ -n "${ENVSVC_PID:-}" ]] && kill -- -"${ENVSVC_PID}" 2>/dev/null || true
-  pkill -f "agentenv_tau2:app" 2>/dev/null || true
+  # The env servers are the pids run_tau2_env_service.sh wrote down. The old fallback
+  # here was `pkill -f "agentenv_tau2:app"`, which matches NOTHING: that string is the
+  # app path passed to uvicorn inside launch.py, while the process command line is
+  # `tau2-env --host ... --port ...`. So a `tmux kill-session` left the whole cluster
+  # running and the next launch died with EADDRINUSE on ports 20401+.
+  for _pf in "${RUN_DIR}"/env_cluster/pids/*.pid; do
+    [[ -f "${_pf}" ]] && kill "$(cat "${_pf}")" 2>/dev/null || true
+  done
+  # Belt and braces, and specific enough not to touch another checkout's servers:
+  # match this run's own interpreter path, never a bare "tau2-env".
+  pkill -f "${TAU2_ENV}/bin/tau2-env" 2>/dev/null || true
   [[ -n "${USERSIM_PID:-}" ]] && kill "${USERSIM_PID}" 2>/dev/null || true
 }
 trap cleanup EXIT

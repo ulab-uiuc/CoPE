@@ -71,14 +71,29 @@ ACTION_FORECAST_SKIP_INVALID="${ACTION_FORECAST_SKIP_INVALID:-True}"
 ACTION_FORECAST_GATE="${ACTION_FORECAST_GATE:-wins}"
 ACTION_FORECAST_GROUP_NORM="${ACTION_FORECAST_GROUP_NORM:-True}"
 ACTION_FORECAST_SUCCESS_THRESHOLD="${ACTION_FORECAST_SUCCESS_THRESHOLD:-0.5}"
-ACTION_FORECAST_MAX_LENGTH="${ACTION_FORECAST_MAX_LENGTH:-4096}"
+# Forecast samples are left-truncated to this many tokens, and the forecast only ever sees
+# WINNING trajectories (gate=wins), so the budget is set by how long a win gets. Measured on
+# the infopo preset (50 rounds, Qwen2.5-7B, 12 wins -> 168 samples): median 6432 tokens,
+# p99 10287, longest 10340. Truncated samples at 4096: 100%; 6144: 55%; 8192: 22%;
+# 10240: 1.2%; 12288: 0%. Anything below the domain's system prompt (4749 retail / 4810
+# airline / 7116 telecom tokens) throws the policy document away and the sample starts
+# mid-policy. 12288 is the smallest budget that truncates nothing, at +4.8 GiB activation
+# memory per rank against 4096 (measured, micro-batch 1 with gradient checkpointing:
+# 29.7 -> 34.5 GiB; 16384 would be 37.0, 24576 47.3). Re-measure mid-training: wins get
+# longer as the policy solves harder tasks.
+ACTION_FORECAST_MAX_LENGTH="${ACTION_FORECAST_MAX_LENGTH:-12288}"
 ACTION_FORECAST_SEQ="${ACTION_FORECAST_SEQ:-separate}"
-# Target layout: 'turns' = the K actions as K assistant turns separated by a fixed user
-# prompt, loss on the assistant turns only; 'list' = K lines of one assistant turn (the
-# ReAct envs' construction). tau2's targets are literal spans of the policy's own turns
-# (multi-line <tool_call> blocks, full messages), so they need 'turns'; 'list' is rejected
-# for native envs.
-ACTION_FORECAST_LAYOUT="${ACTION_FORECAST_LAYOUT:-turns}"
+# Target layout: 'list' = the K actions in ONE assistant turn (what sciworld uses, and the
+# default again here); 'turns' = K assistant turns separated by a fixed user prompt, loss on
+# the assistant turns only.
+#
+# 'turns' existed because K <tool_call> blocks in one message are byte-identical to the
+# template's rendering of several tool calls in one turn, and the env server used to execute
+# only the FIRST of them -- the layout trained a behaviour the reward never saw. The server
+# now parses a native turn whole and executes every call in it (agentenv_tau2
+# `native_multicall`), which is what tau2's own agent does at evaluation, so the collision is
+# gone and 'list' is the aligned choice.
+ACTION_FORECAST_LAYOUT="${ACTION_FORECAST_LAYOUT:-list}"
 # Reweight the first token of each target turn (tool call vs message) so the forecast cannot
 # move the policy's tool-call rate; GRPO alone sets it. Without it the call-poor wins a weak
 # policy produces (refusals, guidance) pulled the call rate from ~30% to ~0 (v8).
@@ -92,16 +107,33 @@ ACTION_FORECAST_TARGETS="${ACTION_FORECAST_TARGETS:-all}"
 # the plain token mean a tool call (median 33 tokens in v10) weighs a third of a message
 # (median 111): 26.7% of v10's target turns were calls but only 9.9% of its trained tokens.
 ACTION_FORECAST_LENGTH_NORM="${ACTION_FORECAST_LENGTH_NORM:-False}"
+# Drop a WINNING trajectory that never ran a tool call, before any sample is built from
+# it. 17 of the 178 training tasks (13 of airline's 30) are "the customer asks for what the
+# policy forbids": their ground-truth actions are all read-only, so the database matches
+# for an agent that only talks, the customer says ###STOP###, and the episode scores 1.0.
+# Measured on the v10 rollouts: wins averaged 1.3 tool calls against 3.2 for losses, and by
+# step 15, 63% of the wins had made no call at all -- distilling those is what taught the
+# policy to stop acting (tool calls 4.0 -> 2.7 per episode over steps 11-13 while the
+# paired GRPO run held 4.3-5.1).
+ACTION_FORECAST_REQUIRE_ACTION="${ACTION_FORECAST_REQUIRE_ACTION:-False}"
 # Skip a forecast sample whose K target actions contain no tool call, as invalid. Talk-only
 # wins (the customer fixed the phone themselves, or a refusal) otherwise teach the policy to
 # talk instead of act, in every domain.
 ACTION_FORECAST_SKIP_NO_CALL="${ACTION_FORECAST_SKIP_NO_CALL:-False}"
-# The forecast pass is its own Adam step per mini-batch of forecast samples. With the
-# default (= PPO_MINI_BATCH_SIZE, 16 samples) a tau2 step of ~300 samples is ~19 optimizer
-# steps on the auxiliary objective against 2 on the policy gradient, and under Adam the
-# coefficient does not change that step count or size. Raise this to bound the number of
-# forecast steps (e.g. 512 -> one step per training step).
-SFT_MINI_BATCH_SIZE="${SFT_MINI_BATCH_SIZE:-${PPO_MINI_BATCH_SIZE}}"
+# Forecast samples per optimizer step, PER GPU: the forecast data is split across ranks,
+# so a step does ceil(n_samples / n_gpus / this) Adam updates on the auxiliary objective
+# against the policy gradient's train_batch_size / ppo_mini_batch_size (2 here).
+#
+# UNSET by default, which is what sciworld does: dp_actor then falls back to the actor's
+# ppo_mini_batch_size AFTER verl normalises it (x rollout.n, / n_gpus) -- 16*5/8 = 10 per
+# GPU for the infopo preset on 8 cards -- so the value tracks the rollout width and the
+# card count instead of being pinned by hand. Setting it to a number pins the raw value:
+# the v8-v18 runs passed 64, which with ~30 samples per rank meant exactly ONE forecast
+# update per training step, every step, regardless of how much data there was.
+#
+# Note the floor: as long as a step has >= 1 sample it takes a full Adam step, so this
+# cannot dial the dose below one update. ACTION_FORECAST_LR_SCALE is the knob that can.
+SFT_MINI_BATCH_SIZE="${SFT_MINI_BATCH_SIZE:-}"
 # Learning-rate multiplier for the forecast step (1.0 = the policy lr). Under Adam the loss
 # coefficient barely changes the step size; this does.
 ACTION_FORECAST_LR_SCALE="${ACTION_FORECAST_LR_SCALE:-1.0}"
@@ -122,6 +154,14 @@ MAX_MODEL_LEN="${MAX_MODEL_LEN:-32768}"
 MAX_TOKENS_PER_TURN="${MAX_TOKENS_PER_TURN:-1024}"
 # Tuned for 40GB A100s: vLLM and the FSDP actor share each card, and tau2's long
 # context makes the KV cache expensive. Raise toward 0.8 on 80GB cards.
+# Seconds the rollout sleeps between rounds (ppo_trainer.yaml ships 1). It does NOT
+# limit concurrency -- the requests in flight are the active trajectories either way --
+# so at 50 rounds it is 50 seconds of idling per training step, 9-20% of the measured
+# generation time. Set to 0 for tau2: its env servers are 12 separate uvicorn processes
+# and a stress test (8 episodes stepping back to back with no pause) produced 0 errors
+# and no thread leak. NOT yet A/B'd on a real run -- set SEND_INTERVAL=1 to restore the
+# upstream behaviour if a run shows env-side trouble.
+SEND_INTERVAL="${SEND_INTERVAL:-0}"
 ROLLOUT_GPU_MEMORY_UTILIZATION="${ROLLOUT_GPU_MEMORY_UTILIZATION:-0.45}"
 PARAM_OFFLOAD="${PARAM_OFFLOAD:-True}"
 OPTIMIZER_OFFLOAD="${OPTIMIZER_OFFLOAD:-True}"
@@ -241,7 +281,8 @@ exec env \
     +actor_rollout_ref.actor.action_forecast_targets="${ACTION_FORECAST_TARGETS}" \
     +actor_rollout_ref.actor.action_forecast_length_norm="${ACTION_FORECAST_LENGTH_NORM}" \
     +actor_rollout_ref.actor.action_forecast_skip_no_call="${ACTION_FORECAST_SKIP_NO_CALL}" \
-    +actor_rollout_ref.actor.sft_mini_batch_size="${SFT_MINI_BATCH_SIZE}" \
+    +actor_rollout_ref.actor.action_forecast_require_action="${ACTION_FORECAST_REQUIRE_ACTION}" \
+    ${SFT_MINI_BATCH_SIZE:+ +actor_rollout_ref.actor.sft_mini_batch_size="${SFT_MINI_BATCH_SIZE}"} \
     +actor_rollout_ref.actor.action_forecast_lr_scale="${ACTION_FORECAST_LR_SCALE}" \
     actor_rollout_ref.actor.ppo_epochs="${PPO_EPOCHS}" \
     actor_rollout_ref.actor.optim.lr="${POLICY_LR}" \
@@ -260,6 +301,7 @@ exec env \
     actor_rollout_ref.rollout.n="${ROLLOUT_N}" \
     actor_rollout_ref.rollout.max_model_len="${MAX_MODEL_LEN}" \
     actor_rollout_ref.rollout.max_tokens="${MAX_TOKENS_PER_TURN}" \
+    actor_rollout_ref.rollout.send_interval="${SEND_INTERVAL}" \
     actor_rollout_ref.rollout.tensor_model_parallel_size="${TENSOR_MODEL_PARALLEL_SIZE}" \
     actor_rollout_ref.rollout.rollout_log_dir="${ROLLOUT_LOG_DIR}" \
     trainer.project_name="${PROJECT_NAME}" \

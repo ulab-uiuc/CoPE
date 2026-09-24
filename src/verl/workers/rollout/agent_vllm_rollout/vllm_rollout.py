@@ -78,6 +78,7 @@ def _post_process_outputs(tokenizer, request_outputs):
 
 import os
 import json
+import re
 import time
 import requests
 import numpy as np
@@ -401,13 +402,35 @@ class vLLMRollout(BaseRollout):
         # agent sees them; the ReAct harness instead feeds every observation, label
         # included, as a user turn.
         native_tools = bool(self.agentgym_config.get("native_tools", False))
+        # One observation can carry SEVERAL messages: a turn with several tool calls
+        # comes back as one "tool: <result>" line per call (tau2 packs them into a
+        # MultiToolMessage), and a tool result can be followed by the customer's reply.
+        # Splitting on line starts keeps a result that contains newlines in one piece.
+        # `tool_error:` is a failed tool call: tau2 sets ToolMessage.error and the env
+        # server marks the line, so the trainer can tell a failure from a result that
+        # merely mentions the word. The CONTENT is identical either way -- the policy
+        # sees the same tool response it always saw.
+        _ROLE_LINE = re.compile(r"^(tool_error|tool|user): ", re.M)
+
+        def _split_roles(state: str):
+            """[(role, text, is_error), ...]; a single (user, state, False) for ReAct."""
+            if not native_tools:
+                return [("user", state, False)]
+            marks = list(_ROLE_LINE.finditer(state or ""))
+            if not marks or marks[0].start() != 0:
+                return [("user", state, False)]
+            out = []
+            for i, m in enumerate(marks):
+                end = marks[i + 1].start() if i + 1 < len(marks) else len(state)
+                kind = m.group(1)
+                out.append(("tool" if kind.startswith("tool") else "user",
+                            state[m.end():end].rstrip("\n"), kind == "tool_error"))
+            return out
+
         def _split_role(state: str):
-            if native_tools:
-                if state.startswith("tool: "):
-                    return "tool", state[len("tool: "):]
-                if state.startswith("user: "):
-                    return "user", state[len("user: "):]
-            return "user", state
+            """First message only -- for the opening observation, which is one message."""
+            role, body, _err = _split_roles(state)[0]
+            return role, body
         for idx, rollout_handler in enumerate(rollout_handler_ls):
             try:
                 env_clients[idx].reset(rollout_handler.item_id)
@@ -433,11 +456,11 @@ class vLLMRollout(BaseRollout):
                     step_output.reward,
                     step_output.done,
                 )
-                role, body = _split_role(state)
-                if role == "tool":
-                    rollout_handler_ls[idx].add_tool_message(self.tokenizer, body)
-                else:
-                    rollout_handler_ls[idx].add_user_message(self.tokenizer, body)
+                for role, body, is_err in _split_roles(state):
+                    if role == "tool":
+                        rollout_handler_ls[idx].add_tool_message(self.tokenizer, body, error=is_err)
+                    else:
+                        rollout_handler_ls[idx].add_user_message(self.tokenizer, body)
                 return step_output.done
             except Exception as e:
                 rollout_handler_ls[idx].score = 0

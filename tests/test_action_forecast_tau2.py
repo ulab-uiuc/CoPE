@@ -168,10 +168,15 @@ def test_mixed_gate_needs_group_ids_and_known_gates_only():
         select_forecast_trajectories(3, [1, 0, 1], gate="best")
 
 
-def test_native_targets_need_the_turns_layout():
-    # literal targets are multi-line; the K-line list would blur their boundaries
-    with pytest.raises(ValueError):
-        build_action_forecast_samples(NATIVE, tokenizer=None, k=3, env="tau2", layout="list")
+def test_native_accepts_the_list_layout_again():
+    """'list' used to be rejected for the native envs because K <tool_call> blocks in one
+    message render exactly like several tool calls in one turn, and the env server then
+    executed only the first of them. The server parses a native turn whole now
+    (agentenv_tau2 `native_multicall`), so the layout no longer trains something the
+    reward cannot see -- only an unknown layout name is still an error."""
+    # no tokenizer here: templating fails inside encode_sft_sample and yields no samples,
+    # which is fine -- what matters is that the layout itself is not rejected any more.
+    assert build_action_forecast_samples(NATIVE, tokenizer=None, k=3, env="tau2", layout="list") == []
     with pytest.raises(ValueError):
         build_action_forecast_samples(NATIVE, tokenizer=None, k=3, env="tau2", layout="lines")
 
@@ -547,3 +552,166 @@ def test_missing_tool_calls_do_not_count_as_calls(tok):
     kw = dict(k=3, skip_invalid=True, env="tau2", layout="turns", skip_no_call=True)
     assert build_action_forecast_samples(DEVICE_ONLY, tok, **kw) == []      # its only call was not the agent's
     assert build_action_forecast_samples(DEVICE, tok, **kw)                 # the real lookup keeps samples
+
+
+def test_native_list_layout_holds_the_literal_spans(tok):
+    """'list' for tau2: the K literal spans in ONE assistant turn, newline-joined -- the
+    same bytes the chat template renders for several tool calls in one turn, which the
+    env server now executes in full."""
+    ss = build_action_forecast_samples(NATIVE, tok, k=3, env="tau2", layout="list",
+                                       max_length=4096)
+    assert ss, "the list layout must produce samples for a native trajectory"
+    s = ss[0]
+    trained = tok.decode([int(t) for t, m in zip(s["input_ids"], s["loss_mask"]) if m])
+    actions = build_action_targets(NATIVE, k=3, env="tau2")[0]["actions"]
+    assert trained.startswith("\n".join(actions)), trained[:200]
+    # one contiguous trained span (one assistant turn), unlike the K spans of 'turns'
+    spans = [i for i, m in enumerate(s["loss_mask"].tolist()) if m]
+    assert spans == list(range(spans[0], spans[-1] + 1))
+
+
+# ---- tool errors are classified, not lumped together ---------------------------------------
+
+def test_tool_error_classes():
+    from verl.agent_trainer.ppo.action_forecast import classify_tool_error
+    assert classify_tool_error("Error: Tool 'check_status_bar' not found.", True) == "missing"
+    assert classify_tool_error("Error: RetailTools.get_product_details() got an unexpected "
+                               "keyword argument 'product_ids'", True) == "badargs"
+    assert classify_tool_error("Error: Order not found", True) == "entity"
+    assert classify_tool_error("Error: Non-pending order cannot be cancelled", True) == "rule"
+    assert classify_tool_error('{"order_id": "#W1"}', False) == "ok"
+    # tau2's own flag wins over the text: a result that merely mentions an error is fine
+    assert classify_tool_error('{"last_error": "none"}', False) == "ok"
+    # without the flag the text still decides, for older dumps
+    assert classify_tool_error("Error: Order not found") == "entity"
+
+
+def _native_with(result_content, error=None, second_call_ok=False):
+    tool = {"role": "tool", "content": result_content}
+    if error is not None:
+        tool["error"] = error
+    convo = [
+        {"role": "system", "content": "S"},
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": CALL_CANCEL},
+        tool,
+        {"role": "assistant", "content": "Let me check something else."},
+        {"role": "user", "content": "ok"},
+    ]
+    if second_call_ok:
+        convo += [{"role": "assistant", "content": CALL_CANCEL},
+                  {"role": "tool", "content": '{"status": "cancelled"}', "error": False}]
+    return convo
+
+
+def test_business_rule_failures_are_always_kept():
+    """"Non-pending order cannot be cancelled" tells the policy the request is
+    impossible -- it is part of the winning path even when the same tool succeeds later
+    on a different order, where the old redo rule dropped it."""
+    convo = _native_with("Error: Non-pending order cannot be cancelled", error=True,
+                         second_call_ok=True)
+    tg = build_action_targets(convo, k=3, skip_invalid=True, env="tau2")
+    assert CALL_CANCEL in tg[0]["actions"]
+
+
+def test_bad_arguments_are_dropped_even_without_a_redo():
+    convo = _native_with("Error: RetailTools.cancel_pending_order() got an unexpected "
+                         "keyword argument 'order'", error=True)
+    tg = build_action_targets(convo, k=3, skip_invalid=True, env="tau2")
+    assert all(CALL_CANCEL not in t["actions"] for t in tg)
+
+
+def test_a_turns_outcome_is_the_worst_of_its_results():
+    """Several calls in one turn produce several results; the turn counts as failed if
+    any of them did, not just the first."""
+    convo = [
+        {"role": "system", "content": "S"},
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": CALL_DETAILS + "\n" + CALL_CANCEL},
+        {"role": "tool", "content": '{"order_id": "#W1"}', "error": False},
+        {"role": "tool", "content": "Error: Tool 'nope' not found.", "error": True},
+        {"role": "assistant", "content": "Sorry, I cannot do that."},
+        {"role": "user", "content": "ok"},
+    ]
+    tg = build_action_targets(convo, k=3, skip_invalid=True, env="tau2")
+    # the turn is dropped: one of its calls hit a tool that does not exist
+    assert all(CALL_DETAILS not in t["actions"] for t in tg)
+
+
+def test_require_action_drops_talk_only_wins():
+    """A win that never ran a tool call is dropped whole. 17 of τ²'s 178 training tasks
+    score 1.0 for an agent that only talks (read-only ground truth + empty
+    communicate_info), and distilling those wins is what taught the policy to stop
+    acting."""
+    from verl.agent_trainer.ppo.action_forecast import (build_action_forecast_batch,
+                                                        has_executed_action)
+    talk_only = [
+        {"role": "system", "content": "S"},
+        {"role": "user", "content": "Can you undo my cancelled order?"},
+        {"role": "assistant", "content": "I am sorry, a cancelled order cannot be restored."},
+        {"role": "user", "content": "Are you sure?"},
+        {"role": "assistant", "content": "Yes, the policy does not allow it."},
+        {"role": "user", "content": "###STOP###"},
+    ]
+    assert not has_executed_action(talk_only)
+    assert has_executed_action(NATIVE)
+
+    class _Tok:  # templating fails -> no samples, but the trajectory counting still runs
+        def apply_chat_template(self, *a, **k):
+            raise RuntimeError("no tokenizer")
+        pad_token_id = 0
+
+    for require, dropped in ((False, 0.0), (True, 1.0)):
+        _, meta = build_action_forecast_batch(
+            messages_list=[talk_only, NATIVE], tokenizer=_Tok(), rewards=[1.0, 1.0],
+            k=3, gate="wins", env="tau2", layout="list", require_action=require)
+        assert meta["action_forecast/n_traj_dropped_no_action"] == dropped
+        assert meta["action_forecast/n_traj_considered"] == (1.0 if require else 2.0)
+
+
+def test_policy_format_metrics_catch_the_known_drifts():
+    """The shares that moved first in every failed τ² forecast run."""
+    from verl.agent_trainer.ppo.action_forecast import policy_format_metrics
+    good = CALL_DETAILS
+    multi = CALL_DETAILS + "\n" + CALL_CANCEL
+    malformed = "<tool_call>\n{\"name\": \"a\"}\n<tool_call>\n{\"name\": \"b\"}\n</tool_call>"
+    bare = '{"name": "get_order_details", "arguments": {"order_id": "#W1"}}'
+    eps = [
+        [{"role": "assistant", "content": good}, {"role": "tool", "content": "ok"}],
+        [{"role": "assistant", "content": multi}],
+        [{"role": "assistant", "content": malformed}],
+        [{"role": "assistant", "content": bare}],
+        [{"role": "assistant", "content": "Sure, I can help with that."}],
+    ]
+    m = policy_format_metrics(eps)
+    assert m["policy/assistant_turns"] == 5
+    assert m["policy/call_turn_share"] == 3 / 5      # good, multi, malformed(one span)
+    assert m["policy/multicall_share"] == 1 / 5
+    assert m["policy/malformed_share"] == 1 / 5
+    assert m["policy/bare_json_share"] == 1 / 5
+    assert m["policy/no_call_episodes"] == 2 / 5     # the bare-json one and the talk one
+
+
+def test_multicall_turns_are_left_out_of_the_forecast():
+    """The env runs every call of a turn now, but a target is the literal first
+    <tool_call> block -- so a multi-call turn would misstate what the policy did. It is
+    neither an anchor nor a target item."""
+    convo = [
+        {"role": "system", "content": "S"},
+        {"role": "user", "content": "cancel #W1 and check #W2"},
+        {"role": "assistant", "content": CALL_DETAILS + "\n" + CALL_CANCEL},   # 2 calls
+        {"role": "tool", "content": '{"order_id": "#W1"}'},
+        {"role": "tool", "content": '{"status": "cancelled"}'},
+        {"role": "assistant", "content": "Both done."},
+        {"role": "user", "content": "###STOP###"},
+    ]
+    tg = build_action_targets(convo, k=3, skip_invalid=False, env="tau2")
+    # the only anchor left is the message turn; the multi-call turn appears nowhere
+    assert [t["prefix_end"] + 1 for t in tg] == [5]
+    assert all(CALL_DETAILS not in a and CALL_CANCEL not in a
+               for t in tg for a in t["actions"])
+    # a single-call turn is untouched
+    single = list(convo)
+    single[2] = {"role": "assistant", "content": CALL_DETAILS}
+    tg2 = build_action_targets(single, k=3, skip_invalid=False, env="tau2")
+    assert tg2[0]["actions"][0] == CALL_DETAILS
