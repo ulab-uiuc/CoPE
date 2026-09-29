@@ -243,20 +243,50 @@ def classify_tool_error(result: str, is_error: Optional[bool] = None) -> str:
     return "rule"
 
 
-def has_executed_action(messages) -> bool:
-    """True if the trajectory actually ran a tool call (a tool-role result came back).
+# Tools that end the episode without doing the task. Handing the customer to a human
+# is a legitimate move on 25 of the 278 tasks, but it is never the WORK: it writes
+# nothing to the database, so on the 258 tasks whose reward_basis has no ACTION check
+# (93% of them) an episode that only transfers still matches the ground truth and
+# scores 1.0 -- at a third of the turns. Measured within a task's own group it is worth
+# +0.042 +- 0.022, so GRPO itself pushes it; the forecast then distils those wins and
+# amplifies it. In the 0924 run it went from 22% of episodes to 76% in ten steps,
+# task_round fell 17.3 -> 6.6 against a GRPO baseline steady at 16-19, and by step 10
+# nine of the fifteen wins had made no other call. Only 2 of the 278 tasks answer with
+# a transfer ALONE, so requiring one other call costs almost nothing.
+_NON_ACTION_TOOLS = frozenset({"transfer_to_human_agents"})
 
-    A τ² episode can WIN without doing anything: 17 of the 178 training tasks (13 of
-    airline's 30) are "the customer asks for something the policy forbids", their
-    ground-truth actions are all read-only, and the reward compares the database
-    against that ground truth -- so an agent that only talks matches it, the customer
-    says ###STOP###, and the episode scores 1.0. Measured on the v10 rollouts: winning
-    episodes averaged 1.3 tool calls against 3.2 for losing ones, and by step 15, 63% of
-    the wins had made no call at all. Distilling those wins is what teaches the policy
-    to stop acting, so they are dropped from the forecast's source.
+
+def has_executed_action(messages) -> bool:
+    """True if the trajectory did the task's WORK -- ran a tool call that is not one of
+    ``_NON_ACTION_TOOLS`` and got a result back.
+
+    A τ² episode can WIN without doing anything: 36 of the 278 tasks (18 of airline's,
+    15 of telecom's) have ground-truth actions that are all read-only and no
+    communicate_info, and 258 have no ACTION check in their reward_basis at all -- so an
+    agent that only talks, or only transfers, matches the database, the episode
+    terminates, and it scores 1.0. Measured on the v10 rollouts: winning episodes
+    averaged 1.3 tool calls against 3.2 for losing ones, and by step 15, 63% of the wins
+    had made no call at all. Distilling those wins is what teaches the policy to stop
+    acting, so they are dropped from the forecast's source.
+
+    A trajectory whose calls cannot be identified (a bare-JSON call τ² executed but the
+    ``<tool_call>`` regex does not match -- ~2% of turns) keeps the old answer: the
+    point is to drop one specific degenerate shape, not everything unparsed.
     """
-    return any((m.get('role') if isinstance(m, dict) else getattr(m, 'role', None)) == 'tool'
-               for m in _to_chat_list(messages))
+    convo = _to_chat_list(messages)
+    if not any(m.get('role') == 'tool' for m in convo):
+        return False
+    names = set()
+    for m in convo:
+        if m.get('role') != 'assistant':
+            continue
+        for span in _TOOL_CALL_SPAN_RE.findall(m.get('content') or ''):
+            name = _native_tool_name(span)
+            if name:
+                names.add(name)
+    if not names:
+        return True
+    return bool(names - _NON_ACTION_TOOLS)
 
 
 def _turn_results(convo, ai):

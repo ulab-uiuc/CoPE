@@ -715,3 +715,68 @@ def test_multicall_turns_are_left_out_of_the_forecast():
     single[2] = {"role": "assistant", "content": CALL_DETAILS}
     tg2 = build_action_targets(single, k=3, skip_invalid=False, env="tau2")
     assert tg2[0]["actions"][0] == CALL_DETAILS
+
+
+def _transfer_traj(extra_call=None):
+    """A win that hands the customer to a human -- optionally after doing real work."""
+    convo = [
+        {"role": "system", "content": "S"},
+        {"role": "user", "content": "I want a refund in cash, not to my card."},
+    ]
+    if extra_call:
+        convo += [
+            {"role": "assistant", "content": extra_call},
+            {"role": "tool", "content": '{"order_id": "#W1"}'},
+        ]
+    convo += [
+        {"role": "assistant", "content":
+            '<tool_call>\n{"name": "transfer_to_human_agents", "arguments": {"summary": "cash refund"}}\n</tool_call>'},
+        {"role": "tool", "content": "Transfer successful"},
+        {"role": "user", "content": "###STOP###"},
+    ]
+    return convo
+
+
+def test_a_win_that_only_transfers_is_not_an_action():
+    """Transferring ends the episode without touching the database, so on the 258 of 278
+    tasks with no ACTION check it still scores 1.0 -- at a third of the turns. Measured
+    in the 0924 run: 22% -> 76% of episodes in ten steps, and 9 of 15 wins at step 10
+    made no other call. It must not feed the forecast."""
+    from verl.agent_trainer.ppo.action_forecast import has_executed_action
+    assert not has_executed_action(_transfer_traj())
+
+
+def test_a_win_that_transfers_after_working_still_counts():
+    """Transfer is the right answer on 25 of the 278 tasks; only 2 answer with a
+    transfer ALONE. A trajectory that did other work keeps its place."""
+    from verl.agent_trainer.ppo.action_forecast import has_executed_action
+    assert has_executed_action(_transfer_traj(
+        '<tool_call>\n{"name": "get_order_details", "arguments": {"order_id": "#W1"}}\n</tool_call>'))
+
+
+def test_an_unparsed_call_keeps_the_old_answer():
+    """A bare-JSON call τ² executes but the <tool_call> regex does not match (~2% of
+    turns): the point is to drop one degenerate shape, not everything unparsed."""
+    from verl.agent_trainer.ppo.action_forecast import has_executed_action
+    convo = [
+        {"role": "system", "content": "S"},
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": '{"name": "get_order_details", "arguments": {"order_id": "#W1"}}'},
+        {"role": "tool", "content": '{"order_id": "#W1"}'},
+    ]
+    assert has_executed_action(convo)
+
+
+def test_require_action_drops_the_transfer_only_win():
+    from verl.agent_trainer.ppo.action_forecast import build_action_forecast_batch
+
+    class _Tok:
+        def apply_chat_template(self, *a, **k):
+            raise RuntimeError("no tokenizer")
+        pad_token_id = 0
+
+    _, meta = build_action_forecast_batch(
+        messages_list=[_transfer_traj(), NATIVE], tokenizer=_Tok(), rewards=[1.0, 1.0],
+        k=3, gate="wins", env="tau2", layout="list", require_action=True)
+    assert meta["action_forecast/n_traj_dropped_no_action"] == 1.0
+    assert meta["action_forecast/n_traj_considered"] == 1.0
