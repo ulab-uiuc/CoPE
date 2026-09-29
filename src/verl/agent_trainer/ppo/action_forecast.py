@@ -812,8 +812,15 @@ def build_action_forecast_batch(
     length_norm: bool = False,
     skip_no_call: bool = False,
     require_action: bool = False,
+    skip_traj=None,
 ):
     """Padded forecast-SFT batch over trajectories, with win/all gating.
+
+    ``skip_traj`` (bools aligned to ``messages_list``): trajectories to leave out whatever
+    their reward. The τ² trainer marks the tasks a do-nothing agent already scores 1.0 on
+    (scripts/tau2_null_policy_tasks.py): their wins are made of talk, refusals or
+    transfers, and their losses of actions that broke a database that needed no change,
+    so neither says anything about the actions that solve a task.
 
     ``balance_calls`` (native tool-calling envs, layout='turns'): reweight the first
     token of each target turn -- the token that decides tool call vs message -- so the
@@ -865,9 +872,13 @@ def build_action_forecast_batch(
     n_traj_used = 0
     n_traj_considered = 0
     n_traj_no_action = 0
+    n_traj_skipped = 0
     traj_records = []   # (group_id, n_samples, start_idx) per distilled traj (group_norm)
     for i, messages in enumerate(messages_list):
         if messages is None or not keep[i]:
+            continue
+        if skip_traj is not None and i < len(skip_traj) and skip_traj[i]:
+            n_traj_skipped += 1
             continue
         # A win that never ran a tool call is a talk-only win (see has_executed_action):
         # distilling it teaches the policy to stop acting, which is the failure the τ²
@@ -1005,6 +1016,7 @@ def build_action_forecast_batch(
             "action_forecast/n_skipped_no_call": float(skip_stats.get('skipped_no_call', 0)),
             "action_forecast/require_action": 1.0 if require_action else 0.0,
             "action_forecast/n_traj_dropped_no_action": float(n_traj_no_action),
+            "action_forecast/n_traj_dropped_null_task": float(n_traj_skipped),
             **balance_meta,
             "action_forecast/k": float(k_mean)}
     if group_norm and traj_records:

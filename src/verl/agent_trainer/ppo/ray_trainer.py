@@ -968,6 +968,18 @@ class RayPPOTrainer(object):
             if _uid is not None:
                 group_ids = list(_uid)
 
+        # tasks a do-nothing agent already scores 1.0 on (scripts/tau2_null_policy_tasks.py):
+        # their trajectories are left out of the forecast whether they won or lost
+        skip_traj = None
+        null_file = str(actor_cfg.get('action_forecast_null_tasks_file', '') or '')
+        if null_file:
+            null_ids = self._af_null_task_ids(null_file)
+            item_ids = batch.non_tensor_batch.get('rollout_item_id', None)
+            if item_ids is None:
+                raise RuntimeError("action_forecast_null_tasks_file is set but the rollout "
+                                   "returned no rollout_item_id")
+            skip_traj = [int(x) in null_ids for x in item_ids]
+
         assembled, meta = build_action_forecast_batch(
             messages_list=list(messages_list),
             tokenizer=self.tokenizer,
@@ -999,10 +1011,22 @@ class RayPPOTrainer(object):
             # a WINNING trajectory that never ran a tool call is dropped whole: those are
             # the tasks a talk-only episode already scores 1.0 on (see action_forecast.py)
             require_action=bool(actor_cfg.get('action_forecast_require_action', False)),
+            skip_traj=skip_traj,
         )
         if assembled is None:
             return None, meta
         return DataProto.from_single_dict(assembled), meta
+
+    def _af_null_task_ids(self, path: str) -> set:
+        """Item ids listed in a tau2_null_policy_tasks.py output, read once."""
+        cache = getattr(self, '_af_null_cache', None)
+        if cache is None or cache[0] != path:
+            import json
+            with open(path) as f:
+                ids = {int(i) for i in json.load(f)['null_full_score_item_ids']}
+            print(f"[action_forecast] leaving out {len(ids)} do-nothing-solvable tasks ({path})")
+            cache = self._af_null_cache = (path, ids)
+        return cache[1]
 
     def _build_sft_ablation_dataproto(self, batch: DataProto, coef: float):
         """Build the RFT-style SFT-ablation DataProto (behavior-clone this step's

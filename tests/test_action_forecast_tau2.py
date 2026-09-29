@@ -780,3 +780,41 @@ def test_require_action_drops_the_transfer_only_win():
         k=3, gate="wins", env="tau2", layout="list", require_action=True)
     assert meta["action_forecast/n_traj_dropped_no_action"] == 1.0
     assert meta["action_forecast/n_traj_considered"] == 1.0
+
+
+def test_null_task_trajectories_are_left_out_win_or_lose():
+    """skip_traj drops a trajectory before anything else looks at it, whatever its
+    reward: the τ² trainer sets it for the tasks a do-nothing agent already scores 1.0 on
+    (scripts/tau2_null_policy_tasks.py), so neither their wins nor, under gate='all',
+    their losses reach the forecast."""
+    from verl.agent_trainer.ppo.action_forecast import build_action_forecast_batch
+
+    class _Tok:  # templating fails -> no samples, but the trajectory counting still runs
+        def apply_chat_template(self, *a, **k):
+            raise RuntimeError("no tokenizer")
+        pad_token_id = 0
+
+    for gate, rewards in (("wins", [1.0, 1.0]), ("all", [0.0, 1.0])):
+        for skip, dropped, considered in ((None, 0.0, 2.0), ([True, False], 1.0, 1.0),
+                                          ([False, False], 0.0, 2.0)):
+            _, meta = build_action_forecast_batch(
+                messages_list=[NATIVE, NATIVE], tokenizer=_Tok(), rewards=rewards,
+                k=3, gate=gate, env="tau2", layout="list", skip_traj=skip)
+            assert meta["action_forecast/n_traj_dropped_null_task"] == dropped
+            assert meta["action_forecast/n_traj_considered"] == considered
+
+
+def test_null_policy_task_list_matches_the_train_split():
+    """The shipped list is in the env server's item order (domains retail, airline,
+    telecom; tasks in loader order) -- the order of the train item-id file."""
+    import json
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    null = json.load(open(root / "data" / "tau2_null_policy_train.json"))
+    items = json.load(open(root / "data" / "tau2_retail-airline-telecom_train.json"))
+    assert null["n_tasks"] == len(items)
+    for row, it in zip(null["tasks"], items):
+        assert int(it["item_id"].split("_")[1]) == row["item_id"]
+        assert (it["task_type"], it["task_id"]) == (row["domain"], row["task_id"])
+    assert null["null_full_score_item_ids"] == [r["item_id"] for r in null["tasks"]
+                                                 if r["null_reward"] >= 1.0]

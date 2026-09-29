@@ -653,7 +653,11 @@ class vLLMRollout(BaseRollout):
         rollout_messages_np = np.empty(batch_size, dtype=object)
         for i, msgs in enumerate(messages):
             rollout_messages_np[i] = [m.to_dict() for m in msgs]
-        non_tensor_batch = {'rollout_messages': rollout_messages_np}
+        # the env item id of each trajectory, so the trainer can tell which task it came
+        # from (e.g. to leave out tasks a do-nothing agent already solves)
+        rollout_item_id_np = np.array([h.item_id for h in rollout_handler_ls], dtype=object)
+        non_tensor_batch = {'rollout_messages': rollout_messages_np,
+                            'rollout_item_id': rollout_item_id_np}
 
         # free vllm cache engine
         self._free_cache_engine()

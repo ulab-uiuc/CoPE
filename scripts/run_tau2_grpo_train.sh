@@ -116,6 +116,13 @@ ACTION_FORECAST_LENGTH_NORM="${ACTION_FORECAST_LENGTH_NORM:-False}"
 # policy to stop acting (tool calls 4.0 -> 2.7 per episode over steps 11-13 while the
 # paired GRPO run held 4.3-5.1).
 ACTION_FORECAST_REQUIRE_ACTION="${ACTION_FORECAST_REQUIRE_ACTION:-False}"
+# Leave out, win or lose, the tasks a do-nothing agent already scores 1.0 on. The reward
+# (EvaluationType.ALL) is deterministic, so the list is computed once, offline, by scoring
+# an empty episode with tau2's own evaluator: scripts/tau2_null_policy_tasks.py. On the
+# retail+airline+telecom train split that is 18 of 178 tasks (retail 5, airline 13,
+# telecom 0), and in the 0924 CoPE runs 296 of their 335 wins on these tasks made no write call at all.
+# Empty (default) = off. A relative path is taken from the repo root.
+ACTION_FORECAST_NULL_TASKS_FILE="${ACTION_FORECAST_NULL_TASKS_FILE:-}"
 # Skip a forecast sample whose K target actions contain no tool call, as invalid. Talk-only
 # wins (the customer fixed the phone themselves, or a refusal) otherwise teach the policy to
 # talk instead of act, in every domain.
@@ -282,6 +289,7 @@ exec env \
     +actor_rollout_ref.actor.action_forecast_length_norm="${ACTION_FORECAST_LENGTH_NORM}" \
     +actor_rollout_ref.actor.action_forecast_skip_no_call="${ACTION_FORECAST_SKIP_NO_CALL}" \
     +actor_rollout_ref.actor.action_forecast_require_action="${ACTION_FORECAST_REQUIRE_ACTION}" \
+    ${ACTION_FORECAST_NULL_TASKS_FILE:+ +actor_rollout_ref.actor.action_forecast_null_tasks_file="$(cd "${ROOT}" && realpath -m "${ACTION_FORECAST_NULL_TASKS_FILE}")"} \
     ${SFT_MINI_BATCH_SIZE:+ +actor_rollout_ref.actor.sft_mini_batch_size="${SFT_MINI_BATCH_SIZE}"} \
     +actor_rollout_ref.actor.action_forecast_lr_scale="${ACTION_FORECAST_LR_SCALE}" \
     actor_rollout_ref.actor.ppo_epochs="${PPO_EPOCHS}" \
