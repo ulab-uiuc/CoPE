@@ -18,8 +18,9 @@ built on [AgentGym-RL](https://github.com/PolarisDane/Agentgym-RL)'s fork of
 Agentic RL benchmarks hand back a single reward at the end of a trajectory, which leaves
 most of a batch with no gradient. CoPE adds an **action forecasting loss**: at every step
 the agent predicts the next K actions it will take, and the realized rollout supervises
-that prediction. It runs as a separate SFT-style pass that never touches the policy
-gradient, so with the flag off the training path is stock GRPO.
+that prediction. The forecasts are then distilled back into the policy, so acting and
+forecasting improve each other. Both are off by default — with the flags off, the
+training path is stock GRPO.
 
 Five environments are supported: SciWorld, ALFWorld, WebShop, AppWorld and τ²-bench.
 
