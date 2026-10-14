@@ -559,44 +559,6 @@ class ActorRolloutRefWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    def compute_intrinsic_rewards(self, data: DataProto):
-        """Turn-level information gain for adv_estimator=info_grpo.
-
-        Costs one extra pair of forward passes per scored turn, so it is capped by
-        INFO_KL_BATCH / INFO_MAX_TURNS. Returns zeros rather than raising if anything is
-        missing, because info_grpo degrades to plain GRPO on a zero intrinsic tensor --
-        a silently weaker signal beats a crashed run mid-training.
-        """
-        assert self._is_actor
-        from verl.trainer.ppo.intrinsic_reward import compute_intrinsic_rewards as _cir
-        if self._is_offload_param:
-            load_fsdp_param_and_grad(module=self.actor_module_fsdp,
-                                     device_id=torch.cuda.current_device(),
-                                     load_grad=self._is_offload_grad)
-        data = data.to('cuda')
-        with self.ulysses_sharding_manager:
-            data = self.ulysses_sharding_manager.preprocess_data(data)
-            b = data.batch
-            try:
-                intrinsic = _cir(
-                    self.actor_module_fsdp,
-                    input_ids=b['input_ids'], attention_mask=b['attention_mask'],
-                    position_ids=b['position_ids'], observation_mask=b['observation_mask'],
-                    response_mask=b['response_mask'],
-                    kl_batch_size=int(os.environ.get('INFO_KL_BATCH', 2)),
-                    max_turns_per_sample=int(os.environ.get('INFO_MAX_TURNS', 8)),
-                )
-            except Exception as e:
-                print(f'[info_grpo] intrinsic reward failed, falling back to zeros: {e}')
-                intrinsic = torch.zeros_like(b['response_mask'], dtype=torch.float32)
-            output = DataProto.from_dict(tensors={'token_level_intrinsic_rewards': intrinsic})
-            output = self.ulysses_sharding_manager.postprocess_data(output)
-        if self._is_offload_param:
-            offload_fsdp_param_and_grad(module=self.actor_module_fsdp,
-                                        offload_grad=self._is_offload_grad)
-        return output.to('cpu')
-
-    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_log_prob(self, data: DataProto):
         assert self._is_actor
         if self._is_offload_param:

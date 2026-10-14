@@ -1,22 +1,24 @@
-"""Temporal Ensembling (TE)：把 action_forecast 的时间视角预测聚合成策略的参考分布 q_t。
+"""Temporal Ensembling (TE): aggregate action_forecast's across-time predictions into a
+reference distribution q_t for the policy.
 
-论文对应：
-    q_t^F(a)   = (1/K_t) Σ_{k=1..K_t} π^k(a | h_{t-k})            时间混合
-    q_t(a)     = (1-η) π^0_θ̄(a | h_t) + η q_t^F(a; θ̄)            冻结参考
-    L_policy   = L_GRPO + λ_TE · E_{h_t~d_θ̄} KL(π_θ^0(·|h_t) ‖ q_t)
+    q_t^F(a)   = (1/K_t) Sum_{k=1..K_t} pi^k(a | h_{t-k})          temporal mixture
+    q_t(a)     = (1-eta) pi^0_thetabar(a | h_t) + eta q_t^F(a)     frozen reference
+    L_policy   = L_GRPO + lambda_TE * E_{h_t~d_thetabar} KL(pi_theta^0(.|h_t) || q_t)
 
-与 action_forecast SFT 的关系：SFT 训练成员（af-loss），TE 把成员蒸馏回策略。
-两者**必须共用同一套 forecast block 构造**，所以 π^k 是 block 的链式条件概率
-p(a_t | h_s, a_s..a_{t-1})，而不是边缘 p(a_t | h_s)。这与论文"把 af-loss 按目标
-时刻重新分组"是一致的（af-loss 里出现的就是链式分解项）。
+Relation to the action_forecast SFT pass: SFT trains the members (the af-loss), TE
+distils the members back into the policy. The two **must share the same forecast block
+construction**, so pi^k is the block's chained conditional p(a_t | h_s, a_s..a_{t-1}),
+not the marginal p(a_t | h_s). This matches regrouping the af-loss by target timestep —
+the chained factors are exactly the terms the af-loss already contains.
 
-⚠️ 成员筛选按**真实轮号**，不能按 slot 下标：
-   skip_invalid=True 时，若发出轮 s 自己的动作无效，会被自己的过滤器滤掉，
-   此时 action_turns[0] > s，slot 1 已经是 k>=1 的合法成员。
-   规则：target t 的成员 = {(s,j) : action_turns[j] == t 且 s < t}
-   （见 tests/test_te_action_turns.py，以及 /data1/logs/temporal_ensemble_design.md §0）
+Members are selected by **real turn number**, never by slot index. With
+skip_invalid=True, if the emitting turn s has an invalid action of its own it is dropped
+by its own filter, so action_turns[0] > s and slot 1 is already a legitimate k>=1 member.
+The rule is: members of target t = {(s,j) : action_turns[j] == t and s < t}.
+See tests/temporal_ensemble/test_te_action_turns.py.
 
-全模块只在 te_enable=True 时被调用；关闭时 ray_trainer 根本不 import 这里的东西。
+Nothing here is called unless te_enable=True; with it off, ray_trainer does not even
+import this module.
 """
 import math
 from typing import Dict, List, Optional, Tuple
@@ -29,25 +31,28 @@ from verl.agent_trainer.ppo.action_forecast import (
 
 
 # --------------------------------------------------------------------------
-# 1) 构造打分样本
+# 1) Build the scoring samples
 # --------------------------------------------------------------------------
 def build_te_scoring_samples(messages, tokenizer, k: int = 3,
                              skip_invalid: bool = False, env: str = "sciworld",
                              max_length: int = 4096) -> List[Dict]:
-    """一条轨迹 → 每个动作轮一条打分样本（带 slot→轮号 与 slot→token span）。
+    """One trajectory -> one scoring sample per action turn, carrying slot->turn and
+    slot->token-span maps.
 
-    编码路径与 action_forecast 的 build_action_forecast_samples **逐字一致**：
+    The encoding path is **identical, verbatim**, to action_forecast's
+    build_action_forecast_samples:
         prefix = convo[:obs_s+1] + {'role':'user', 'content': PROMPT.format(k=realized)}
         target = {'role':'assistant', 'content': "\\n".join(items)}
-    注意 target 是裸的换行连接。
-    这里用 tokenizer(full_text, return_offsets_mapping=True)，与 encode_sft_sample
-    的 tokenizer(full_text) 得到同一串 token id，额外拿到字符偏移用于定位 slot。
+    Note the target is a bare newline join. Here we use
+    tokenizer(full_text, return_offsets_mapping=True), which yields the same token ids as
+    encode_sft_sample's tokenizer(full_text) plus the character offsets needed to locate
+    each slot.
 
-    返回的每条样本：
-        input_ids / attention_mask / loss_mask : torch.LongTensor，与 SFT 同构
-        slot_turns : List[int]        每个 slot 的真实动作轮号
-        slot_spans : List[(s,e)]      每个 slot 的动作正文在 input_ids 里的 [s,e)
-        src_turn   : int              这条 forecast 的发出轮 s
+    Each returned sample:
+        input_ids / attention_mask / loss_mask : torch.LongTensor, same shape as SFT
+        slot_turns : List[int]        the real action turn of each slot
+        slot_spans : List[(s,e)]      each slot's action body as [s,e) into input_ids
+        src_turn   : int              the turn s this forecast was emitted from
     """
     convo = _to_chat_list(messages)
     out: List[Dict] = []
@@ -57,7 +62,7 @@ def build_te_scoring_samples(messages, tokenizer, k: int = 3,
         src = tgt.get('src_turn')
         if not items or src is None or len(turns) != len(items):
             continue
-        # 至少要有一个 k>=1 的成员（按轮号判断，不能按 slot 下标）
+        # Need at least one k>=1 member -- judged by turn number, not slot index.
         if not any(t > src for t in turns):
             continue
 
@@ -81,18 +86,18 @@ def build_te_scoring_samples(messages, tokenizer, k: int = 3,
         if not ids:
             continue
 
-        # content 在 full_text 中的位置（取最后一次出现：它就在结尾附近）
+        # Where content sits in full_text (take the last occurrence: it is near the end)
         try:
             cpos = full_text.rindex(content)
         except ValueError:
             continue
-        # 每个 item 在 content 内的字符区间（items 用 "\n" 连接）
+        # Character range of each item within content (items are joined by "\n")
         spans_tok: List[Tuple[int, int]] = []
         off_in_content = 0
         ok = True
         for it in items:
             cs, ce = cpos + off_in_content, cpos + off_in_content + len(it)
-            off_in_content += len(it) + 1        # +1 是分隔的 "\n"
+            off_in_content += len(it) + 1        # +1 for the separating "\n"
             idx = [j for j, (a, b) in enumerate(offs) if a < ce and b > cs]
             if not idx:
                 ok = False
@@ -101,7 +106,7 @@ def build_te_scoring_samples(messages, tokenizer, k: int = 3,
         if not ok:
             continue
 
-        # prefix_len：与 encode_sft_sample 完全同一套判定
+        # prefix_len: exactly the same determination encode_sft_sample makes
         prefix_ids = tokenizer(prefix_text, add_special_tokens=False)['input_ids']
         if full_text.startswith(prefix_text):
             prefix_len = len(prefix_ids)
@@ -117,14 +122,14 @@ def build_te_scoring_samples(messages, tokenizer, k: int = 3,
         loss_mask = torch.zeros_like(input_ids)
         loss_mask[prefix_len:] = 1
 
-        # 左截断（与 encode_sft_sample 同样从左边丢），span 同步平移
+        # Left truncation (same side encode_sft_sample drops from); shift spans with it
         if input_ids.size(0) > max_length:
             drop = input_ids.size(0) - max_length
             input_ids = input_ids[drop:]
             loss_mask = loss_mask[drop:]
             spans_tok = [(s - drop, e - drop) for (s, e) in spans_tok]
             if any(s < 0 for (s, _) in spans_tok):
-                continue                        # 有 slot 被截掉了，整条丢弃
+                continue                        # a slot was cut off; drop the sample
 
         out.append(dict(
             input_ids=input_ids,
@@ -138,16 +143,16 @@ def build_te_scoring_samples(messages, tokenizer, k: int = 3,
 
 
 # --------------------------------------------------------------------------
-# 2) 从 logits 取每个 slot 的序列级 log-prob
+# 2) Per-slot sequence-level log-probs from logits
 # --------------------------------------------------------------------------
 @torch.no_grad()
 def slot_logprobs_from_logits(logits: torch.Tensor, input_ids: torch.Tensor,
                               slot_spans: List[List[Tuple[int, int]]],
                               ) -> List[List[float]]:
-    """每条样本的每个 slot：该 slot 动作正文 token 的 log-prob **之和**（序列级）。
+    """Per sample, per slot: the **sum** of the log-probs of that slot's action tokens.
 
-    shift 约定：位置 i 的 logits 预测 token i+1，所以 token 位置 p 的 log-prob
-    取 gathered[p-1]（gathered 已经是 shift 过的 [B, T-1]）。
+    Shift convention: the logits at position i predict token i+1, so the log-prob of the
+    token at position p is gathered[p-1] (gathered is already the shifted [B, T-1]).
     """
     logp = torch.log_softmax(logits[:, :-1].float(), dim=-1)
     tok = input_ids[:, 1:]
@@ -165,13 +170,14 @@ def slot_logprobs_from_logits(logits: torch.Tensor, input_ids: torch.Tensor,
 def slot_token_logprobs_from_logits(logits: torch.Tensor, input_ids: torch.Tensor,
                                     slot_spans: List[List[Tuple[int, int]]],
                                     ) -> List[List[List[float]]]:
-    """同 slot_logprobs_from_logits，但返回**逐 token** log-prob（不求和）。
+    """As slot_logprobs_from_logits, but returning **per-token** log-probs, unsummed.
 
-    逐 token 混合需要它：成员和 rollout 打的是同一串动作 token（已验证 98.0%
-    逐 token 完全一致、0% 长度不等，另 2.0% 仅末尾换行 token 不同且都是
-    extract_action 未命中的退化样本），位置可 1:1 对齐。
+    Per-token mixing needs these: members and the rollout score the same action token
+    string (measured: 98.0% token-for-token identical, 0% differing in length; the
+    remaining 2.0% differ only in a trailing newline token and are all degenerate samples
+    where extract_action found nothing), so positions align 1:1.
 
-    返回 res[b][slot] = [该 slot 每个 token 的 log-prob]（空 span 给 []）。
+    Returns res[b][slot] = [log-prob of each token in that slot]; empty span gives [].
     """
     logp = torch.log_softmax(logits[:, :-1].float(), dim=-1)
     tok = input_ids[:, 1:]
@@ -187,43 +193,51 @@ def slot_token_logprobs_from_logits(logits: torch.Tensor, input_ids: torch.Tenso
 
 
 # --------------------------------------------------------------------------
-# 3) 合成 q_t
+# 3) Assembling q_t
 # --------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
-# 全词表逐 token KL（te_mix='fullvocab'）所需的 top-M 提取与混合
+# Top-M extraction and mixing for the full-vocabulary per-token KL (te_mix='fullvocab')
 #
-# 为什么需要它（2026-09-15/16 两次失败的共同根因）：
-#   只在"实际发生的 token"上算 log q - log π，得到的是**无归一化**的目标：
-#     - 原始 KL 形式：有不动点，但只覆盖动作 token，模型把概率质量挪到非动作
-#       文本上即可规避 -> response_length 931->3264，成功率归零。
-#     - 扣共模后：逃逸路径堵死了，但损失退化成线性项 w·log π（w 为常数），
-#       w>0 时最小值在 log π->-inf、w<0 时在 π->1，**两个方向都无界、没有不动点**
-#       -> 熵 0.37->6.72，策略输出变成词沙拉。
-#   真 KL 需要在整个词表上求和：它在 π_θ=q 处取 0 且梯度为 0（有不动点），
-#   而把质量挪给任何别的 token 都会让 KL 变大（无逃逸路径）。两个毛病同时解决。
+# Why it is needed -- the shared root cause of two failed runs:
+#   Computing log q - log pi only on the tokens that actually occurred gives an
+#   **unnormalised** objective:
+#     - Raw KL form: it has a fixed point, but it only covers action tokens, so the
+#       model can dodge it by moving probability mass onto non-action text
+#       -> response_length 931 -> 3264, success rate to zero.
+#     - After subtracting the common mode: the escape route is closed, but the loss
+#       degenerates into the linear term w*log pi (w constant). For w>0 the minimum is
+#       at log pi -> -inf, for w<0 at pi -> 1; **both directions are unbounded with no
+#       fixed point** -> entropy 0.37 -> 6.72, the policy emits word salad.
+#   A true KL has to sum over the whole vocabulary: it is 0 with zero gradient at
+#   pi_theta=q (a fixed point), and moving mass to any other token increases it (no
+#   escape route). That fixes both problems at once.
 #
-# 实现要点：
-#   q(v) = [(1-η)·p0(v) + η·qF(v)] / Z，其中
-#     p0 = 冻结策略的下一 token 分布 —— **不需要传输**，在 dp_actor 里用当前
-#          logits 的 detach 版取得（第一个内层 epoch θ=θ̄ 时严格相等）；
-#     qF = 成员预测分布的平均，只以 top-M 稀疏形式运送；
-#     Z  = (1-η) + η·(qF 的 top-M 质量)，修正 top-M 截断带来的次归一化。
-#   于是 q(v) >= (1-η)p0(v)/Z 处处成立，对数比有界(<= -log(1-η))，
-#   无需任何平滑，也不会除零。
+# Implementation:
+#   q(v) = [(1-eta)*p0(v) + eta*qF(v)] / Z, where
+#     p0 = the frozen policy's next-token distribution -- **not transmitted**; taken in
+#          dp_actor from the detached current logits (exactly equal on the first inner
+#          epoch, where theta = thetabar);
+#     qF = the mean of the member predictions, shipped only as a sparse top-M;
+#     Z  = (1-eta) + eta*(qF's top-M mass), correcting the sub-normalisation that the
+#          top-M truncation introduces.
+#   Then q(v) >= (1-eta)p0(v)/Z holds everywhere, the log ratio is bounded
+#   (<= -log(1-eta)), no smoothing is needed, and nothing divides by zero.
 # ---------------------------------------------------------------------------
 
-TE_TOPM = 64          # 每个动作 token 位置保留的词表 top-M
-TE_TOPM_MAXTOK = 16   # 每个动作最多保留多少 token（实测中位 2，16 覆盖 98.51%）
+TE_TOPM = 64          # vocabulary top-M kept at each action token position
+TE_TOPM_MAXTOK = 16   # max tokens kept per action (measured median 2; 16 covers 98.51%)
 
 
 def slot_topk_from_logits(logits: torch.Tensor, input_ids: torch.Tensor,
                           slot_spans: List[List[Tuple[int, int]]],
                           topm: int = TE_TOPM, maxtok: int = TE_TOPM_MAXTOK):
-    """每条样本的每个 slot，取其动作 token 位置上的下一 token 分布 top-M。
+    """Per sample, per slot: the top-M of the next-token distribution at that slot's
+    action token positions.
 
-    shift 约定与 slot_logprobs_from_logits 一致：token 位置 p 的分布来自 logits[p-1]。
-    返回 (ids, probs)，形状均为 [B, n_slot_max, maxtok, topm]，
-    ids 用 -1 填充、probs 用 0 填充（padding 位置对混合无贡献）。
+    Same shift convention as slot_logprobs_from_logits: the distribution for the token at
+    position p comes from logits[p-1]. Returns (ids, probs), both shaped
+    [B, n_slot_max, maxtok, topm], ids padded with -1 and probs with 0 (padding
+    positions contribute nothing to the mixture).
     """
     B = logits.shape[0]
     n_slot = max((len(sp) for sp in slot_spans), default=0)
@@ -247,16 +261,17 @@ def slot_topk_from_logits(logits: torch.Tensor, input_ids: torch.Tensor,
 
 def assemble_q(member_lp: Dict[int, List[float]], pi0_lp: Dict[int, float],
                eta: float) -> Dict[int, Dict[str, float]]:
-    """把成员 log-prob 合成 log q_t。
+    """Combine member log-probs into log q_t.
 
-    member_lp[t] : [log π^k(a_t|h_{t-k}) for k>=1]（已按 t>s 筛过）
-    pi0_lp[t]    : log π^0_θ̄(a_t|h_t)，来自 old_log_probs 按 turn_ids 分段求和
-    返回 {t: {'log_q','log_qF','K_t'}}；无成员（含 t=0）时 log_q = pi0，
-    此时 TE-KL 退化为信任域项 KL(π_θ‖π_θ̄)，与论文 q_0 = π^0_θ̄ 一致。
+    member_lp[t] : [log pi^k(a_t|h_{t-k}) for k>=1] (already filtered to t > s)
+    pi0_lp[t]    : log pi^0_thetabar(a_t|h_t), from old_log_probs summed by turn_ids
+    Returns {t: {'log_q','log_qF','K_t'}}. With no members (including t=0) log_q = pi0,
+    where the TE-KL degenerates to the trust-region term KL(pi_theta||pi_thetabar),
+    consistent with q_0 = pi^0_thetabar.
     """
     out: Dict[int, Dict[str, float]] = {}
     for t, p0 in pi0_lp.items():
-        ms = [x for x in member_lp.get(t, []) if x == x]          # 滤 NaN
+        ms = [x for x in member_lp.get(t, []) if x == x]          # drop NaN
         if not ms or eta <= 0.0:
             out[t] = dict(log_q=float(p0), log_qF=float('nan'), K_t=0)
             continue
@@ -270,9 +285,10 @@ def assemble_q(member_lp: Dict[int, List[float]], pi0_lp: Dict[int, float],
 
 def segment_sum_by_turn(values: torch.Tensor, turn_ids: torch.Tensor,
                         n_turn: int) -> torch.Tensor:
-    """按轮号对 per-token 值分段求和 → [B, n_turn]。turn_ids 中 -1 的位置被忽略。
+    """Segment-sum per-token values by turn -> [B, n_turn]. -1 in turn_ids is ignored.
 
-    用 one_hot+einsum 而非 for 循环，既快又**保住梯度**（策略侧 log π_θ 需要）。
+    Uses one_hot+einsum rather than a for loop: faster, and it **keeps the gradient**,
+    which the policy-side log pi_theta needs.
     """
     valid = (turn_ids >= 0)
     oh = torch.nn.functional.one_hot(turn_ids.clamp(min=0), n_turn).to(values.dtype)
@@ -281,18 +297,19 @@ def segment_sum_by_turn(values: torch.Tensor, turn_ids: torch.Tensor,
 
 
 # --------------------------------------------------------------------------
-# 4) batch 组装（trainer 侧调用）
+# 4) Batch assembly (called from the trainer)
 # --------------------------------------------------------------------------
 def build_te_batch(messages_list, tokenizer, k: int, skip_invalid: bool, env: str,
                    max_length: int = 4096, pad_token_id: int = 0,
                    traj_subsample: float = 1.0, rng=None):
-    """把所有轨迹的打分样本 padding 成一个 DataProto，并返回索引。
+    """Pad every trajectory's scoring samples into one DataProto and return the index.
 
-    索引 index[i] = (traj_idx, slot_turns, src_turn)，用于把第 i 条样本的
-    slot log-prob 归到 (traj_idx, target_turn) 上。
+    index[i] = (traj_idx, slot_turns, src_turn), used to attribute sample i's slot
+    log-probs to (traj_idx, target_turn).
 
-    traj_subsample < 1 时随机抽一部分轨迹打分（KL 是期望，子采样无偏，方差变大），
-    这是文档 §6 给的首选降本手段。
+    With traj_subsample < 1, score a random subset of trajectories. The KL is an
+    expectation, so subsampling is unbiased and only raises variance -- the preferred way
+    to cut cost.
     """
     import random as _random
     from verl import DataProto
@@ -323,7 +340,7 @@ def build_te_batch(messages_list, tokenizer, k: int, skip_invalid: bool, env: st
     shifted_spans = []
     for b, s in enumerate(samples):
         n = int(s['input_ids'].size(0))
-        off = L - n                                    # 左填充，与 span 同步平移
+        off = L - n                                    # left padding; shift spans to match
         input_ids[b, off:] = s['input_ids']
         attn[b, off:] = 1
         pos[b, off:] = torch.arange(n, dtype=torch.long)
@@ -340,14 +357,15 @@ def build_te_batch(messages_list, tokenizer, k: int, skip_invalid: bool, env: st
     return batch, index, meta
 
 
-TE_COV_MAX = 128      # 每条轨迹最多保留多少个被覆盖的动作 token
+TE_COV_MAX = 128      # max covered action tokens kept per trajectory
 
 
 def pad_slot_dim(x: torch.Tensor, k: int) -> torch.Tensor:
-    """把 [B, n_slot, ...] 的 slot 维补齐到 k（int32 用 -1、浮点用 0 填充）。
+    """Pad the slot dimension of [B, n_slot, ...] out to k (-1 for int32, 0 for float).
 
-    各 micro-batch 的 slot 数可能不同，跨 worker 拼接前必须统一宽度。
-    放在 TE 模块里而不是 dp_actor：后者的函数清单受惰性审计约束。
+    Micro-batches can have different slot counts, and the width has to be uniform before
+    concatenating across workers. This lives in the TE module rather than dp_actor,
+    whose function inventory is under a lazy-audit constraint.
     """
     if x.shape[1] >= k:
         return x
@@ -359,15 +377,16 @@ def pad_slot_dim(x: torch.Tensor, k: int) -> torch.Tensor:
 
 def assemble_te_topm(index, topm_ids, topm_prs, turn_ids: torch.Tensor,
                      n_members_needed=None, cov_max: int = TE_COV_MAX):
-    """把成员的 top-M 分布归并成与 rollout 对齐的紧凑张量。
+    """Merge the members' top-M distributions into compact tensors aligned to the rollout.
 
-    输出（紧凑表示，避免 [bsz, resp_len, M] 那种 128x4096x64 的巨张量）：
-        te_cov_pos [bsz, C]      每个被覆盖 token 在 response 中的位置，-1 = padding
-        te_cov_ids [bsz, C, M]   该位置 qF 的 top-M token id，-1 = padding
-        te_cov_prs [bsz, C, M]   对应概率（成员平均后），0 = padding
-    qF = 成员分布的**算术平均**。成员之间 top-M 的 id 会重叠，必须按 id 合并求和，
-    不能简单拼接 —— 所以用稠密 scatter_add 分块做（每块 64 个位置，64x152k float
-    约 39MB），再取 top-M。这是正确性优先于技巧的选择。
+    Output (compact, to avoid a [bsz, resp_len, M] monster of 128x4096x64):
+        te_cov_pos [bsz, C]      position of each covered token in the response, -1 = pad
+        te_cov_ids [bsz, C, M]   qF's top-M token ids at that position, -1 = pad
+        te_cov_prs [bsz, C, M]   their probabilities (averaged over members), 0 = pad
+    qF is the **arithmetic mean** of the member distributions. Members' top-M ids overlap,
+    so they have to be merged by id and summed, not simply concatenated -- hence the
+    chunked dense scatter_add (64 positions per chunk, 64x152k float is about 39MB)
+    followed by a top-M. Correctness over cleverness.
     """
     bsz = turn_ids.shape[0]
     M = topm_prs.shape[-1] if topm_prs is not None and topm_prs.numel() else TE_TOPM
@@ -375,7 +394,7 @@ def assemble_te_topm(index, topm_ids, topm_prs, turn_ids: torch.Tensor,
     members = {}
     for si, (ti, slot_turns, src) in enumerate(index):
         for j, t in enumerate(slot_turns):
-            if t <= src:                      # k=0 按论文排除
+            if t <= src:                      # k=0 is excluded by construction
                 continue
             members.setdefault((int(ti), int(t)), []).append((si, j))
 
@@ -387,7 +406,8 @@ def assemble_te_topm(index, topm_ids, topm_prs, turn_ids: torch.Tensor,
         n = int(pos.numel())
         if n == 0:
             continue
-        # 成员的 token 数必须与 rollout 一致，否则丢弃（不截断错位，同 token 版）
+        # A member's token count must match the rollout's, else drop it -- never truncate
+        # into a misalignment (same rule as the per-token path).
         good = []
         for (si, j) in ms:
             valid_tok = int((topm_ids[si, j, :, 0] >= 0).sum())
@@ -442,27 +462,30 @@ def assemble_te_topm(index, topm_ids, topm_prs, turn_ids: torch.Tensor,
 def fullvocab_te_kl(logits: torch.Tensor, cov_pos: torch.Tensor,
                     cov_ids: torch.Tensor, cov_prs: torch.Tensor,
                     eta: float):
-    """全词表逐 token KL(π_θ ‖ q)，q = [(1-η)p0 + η qF] / Z。
+    """Full-vocabulary per-token KL(pi_theta || q), q = [(1-eta)p0 + eta qF] / Z.
 
-    logits  : [B, T, V]（response 段，与 cov_pos 同一坐标系），带梯度
-    cov_pos : [B, C]    被覆盖 token 在 response 中的位置，-1 = padding
-    cov_ids : [B, C, M] qF 的 top-M token id，-1 = padding
-    cov_prs : [B, C, M] 对应概率
+    logits  : [B, T, V] (the response segment, same coordinates as cov_pos), with grad
+    cov_pos : [B, C]    position of each covered token in the response, -1 = padding
+    cov_ids : [B, C, M] qF's top-M token ids, -1 = padding
+    cov_prs : [B, C, M] their probabilities
 
-    p0 取 softmax(logits).detach() —— 第一个内层 epoch θ=θ̄ 时严格等于冻结策略。
-    由此 q(v) >= (1-η)p0(v)/Z 处处成立，对数比有界(<= -log(1-η))，无需平滑。
+    p0 is softmax(logits).detach() -- exactly the frozen policy on the first inner epoch,
+    where theta = thetabar. That makes q(v) >= (1-eta)p0(v)/Z hold everywhere and the log
+    ratio bounded (<= -log(1-eta)), so no smoothing is required.
 
-    恒等式（推导见设计文档）：
-        KL(π‖q) = KL(π‖p0) - log((1-η)/Z)
-                  - Σ_{v∈topM} π(v)·log1p( η·qF(v) / ((1-η)·p0(v)) )
-    其中 KL(π‖p0) 在 p0=π.detach() 处取值与梯度均为 0，保留它是为了公式完整
-    （也便于测试里用非自指的 p0 验证分解式）。
+    Identity:
+        KL(pi||q) = KL(pi||p0) - log((1-eta)/Z)
+                    - Sum_{v in topM} pi(v)*log1p( eta*qF(v) / ((1-eta)*p0(v)) )
+    KL(pi||p0) has both value and gradient 0 at p0=pi.detach(); it is kept for the
+    formula's completeness (and so tests can verify the decomposition with a
+    non-self-referential p0).
 
-    梯度 = -Σ_topM ∇π(v)·log1p(...)，因 Σ_v ∇π(v)=0 而自动中心化：
-    质量只在 token 之间转移，总量守恒 —— 这正是"扣共模"版本缺失的归一化约束。
-    不动点在 π=qF：此时括号内为常数，梯度恰好归零。
+    Gradient = -Sum_topM grad pi(v)*log1p(...), automatically centred because
+    Sum_v grad pi(v) = 0: mass only moves between tokens, the total is conserved --
+    exactly the normalisation constraint the common-mode-subtracted version lacked.
+    The fixed point is pi=qF, where the bracket is constant and the gradient vanishes.
 
-    返回 (kl_mean, n_pos)。n_pos=0 时 kl_mean 为 0 张量（惰性）。
+    Returns (kl_mean, n_pos). With n_pos=0, kl_mean is a zero tensor (lazily).
     """
     B, T, V = logits.shape
     valid = cov_pos >= 0
@@ -476,13 +499,14 @@ def fullvocab_te_kl(logits: torch.Tensor, cov_pos: torch.Tensor,
 
 def fullvocab_te_kl_rows(z: torch.Tensor, ids: torch.Tensor, prs: torch.Tensor,
                          eta: float):
-    """fullvocab_te_kl 的核心：直接吃已经取好的 logits 行。
+    """The core of fullvocab_te_kl, taking already-gathered logit rows.
 
-    z   : [P, V] 被覆盖位置的 logits（带梯度）
-    ids : [P, M] qF 的 top-M token id，-1 = padding
-    prs : [P, M] 对应概率
-    dp_actor 里用这个入口 —— 只把那几十行 [P,V] 带出前向，避免整块
-    [bsz, resp_len, V]（resp_len=4096、V=152k 下是 GB 级）。
+    z   : [P, V] logits at the covered positions (with grad)
+    ids : [P, M] qF's top-M token ids, -1 = padding
+    prs : [P, M] their probabilities
+    dp_actor calls this entry point so only those few dozen [P,V] rows leave the forward
+    pass, instead of the whole [bsz, resp_len, V] block (gigabytes at resp_len=4096,
+    V=152k).
     """
     if z.numel() == 0 or eta <= 0.0:
         return z.sum() * 0.0, 0
@@ -494,14 +518,14 @@ def fullvocab_te_kl_rows(z: torch.Tensor, ids: torch.Tensor, prs: torch.Tensor,
     prs = prs.float()                                    # [P, M]
     keep = ids >= 0
     ids_c = ids.clamp(min=0)
-    qf = prs * keep                                      # padding 置 0
-    mass = qf.sum(-1)                                    # top-M 覆盖的质量
-    Z = (1.0 - eta) + eta * mass                         # [P] 次归一化修正
+    qf = prs * keep                                      # zero out padding
+    mass = qf.sum(-1)                                    # mass covered by the top-M
+    Z = (1.0 - eta) + eta * mass                         # [P] sub-normalisation fix
     p0_sel = logp0.gather(1, ids_c).exp()                # [P, M]
     ratio = (eta * qf) / ((1.0 - eta) * p0_sel.clamp_min(1e-20))
     corr = torch.log1p(ratio) * keep                     # [P, M]
     p_sel = p.gather(1, ids_c)
-    kl_p_p0 = (p * (logp - logp0)).sum(-1)               # 值与梯度均为 0（自指时）
+    kl_p_p0 = (p * (logp - logp0)).sum(-1)               # value and grad both 0 (self-ref)
     kl = kl_p_p0 - torch.log((1.0 - eta) / Z) - (p_sel * corr).sum(-1)
     return kl.mean(), n_pos
 
@@ -509,23 +533,26 @@ def fullvocab_te_kl_rows(z: torch.Tensor, ids: torch.Tensor, prs: torch.Tensor,
 def assemble_te_tensors_token(index, slot_tok_lp, old_log_probs: torch.Tensor,
                               turn_ids: torch.Tensor, eta: float,
                               traj_return=None):
-    """**逐 token** 版：返回与 old_log_probs 同形的 [bsz, T] te_log_q。
+    """**Per-token** variant: returns te_log_q shaped [bsz, T], like old_log_probs.
 
-    为什么必须逐 token（2026-09-15 dry-run 实测）：
-      序列级混合下 gain = log qF - log π⁰ ≈ -7.6（= 每 token -2.3 × 动作 3.3 token），
-      qF 在 q=(1-η)π⁰+η·qF 里的权重只有 3e-4，q ≈ (1-η)π⁰，于是
-      log q - log π⁰ ≡ log(1-η) 对所有 target 都是同一个常数，k3 梯度
-      1 - e^{kl} 也是常数 —— 退化成"对所有动作等量压低"，不含方向信息。
-      换成逐 token 后每 token gain ≈ -0.6，η=0.5 时 qF 权重就有 0.33-0.41，
-      且 win/fail 的 q 真正分开（Δ ≈ 0.14 nats/token）。
+    Why per-token is required (measured in a dry run):
+      Under sequence-level mixing, gain = log qF - log pi^0 is about -7.6 (-2.3 per token
+      times a 3.3-token action), so qF's weight in q=(1-eta)pi^0+eta*qF is only 3e-4 and
+      q is essentially (1-eta)pi^0. Then log q - log pi^0 == log(1-eta), the same constant
+      for every target, and the k3 gradient 1 - e^{kl} is constant too -- it degenerates
+      into "push every action down equally", carrying no directional information.
+      Per-token, the gain per token is about -0.6, qF's weight at eta=0.5 is 0.33-0.41,
+      and win/fail trajectories genuinely separate (delta about 0.14 nats/token).
 
-    对齐前提已离线验证：成员 slot span 的 token 串与 rollout 侧 turn_ids 标出的
-    动作 token 串，1677 对里 98.0% 逐 token 完全相同、0% 长度不等；余下 2.0%
-    长度相同仅末尾换行 token 不同。长度不等的成员在这里直接丢弃（计入
-    te/token_len_mismatch），绝不做截断对齐 —— 错位混合比不混合更糟。
+    The alignment premise was verified offline: of 1677 pairs of (member slot span token
+    string, rollout action token string marked by turn_ids), 98.0% are token-for-token
+    identical and 0% differ in length; the remaining 2.0% have equal length and differ
+    only in a trailing newline token. Members whose length differs are dropped outright
+    here (counted in te/token_len_mismatch) and never truncated into alignment --
+    misaligned mixing is worse than no mixing.
     """
     bsz, T = old_log_probs.shape
-    te_log_q = old_log_probs.float().clone()          # 默认 = π⁰ → KL 恒为 0
+    te_log_q = old_log_probs.float().clone()          # default = pi^0 -> KL identically 0
     te_valid = torch.zeros_like(te_log_q, dtype=torch.bool)
 
     members = {}          # (traj, t) -> [[tok logp...], ...]
@@ -535,9 +562,9 @@ def assemble_te_tensors_token(index, slot_tok_lp, old_log_probs: torch.Tensor,
             if j >= len(row):
                 continue
             toks = row[j]
-            if not toks or any(v != v for v in toks):     # 空或含 NaN
+            if not toks or any(v != v for v in toks):     # empty or containing NaN
                 continue
-            if t <= src:                                  # k=0，按论文排除
+            if t <= src:                                  # k=0, excluded by construction
                 n_k0 += 1
                 continue
             members.setdefault((ti, int(t)), []).append(list(toks))
@@ -566,14 +593,18 @@ def assemble_te_tensors_token(index, slot_tok_lp, old_log_probs: torch.Tensor,
         Ks.append(mt.shape[0])
         gains.append((ti, float((log_qF - p0_vec.to(torch.float64)).mean())))
 
-    # 共模基线 g_bar：k3 估计量对 log π 的梯度是 g = 1 - exp(log q - log π⁰)。
-    # 因为 gain 恒为负、q < π⁰，g 恒为正 —— 即"对所有动作 token 一律往下压"。
-    # 2026-09-15 实测：共模 ≈0.20/token，而 win/fail 的差只有 0.13，共模比信号还大；
-    # 且 TE 只覆盖裸动作 token，模型可以把概率质量挪到非动作文本上来规避，
-    # 于是 response_length 从 931 涨到 3264、成功率归零、te/kl 自我满足地跌到 0。
-    # 扣掉 g_bar 后该项零均值：只有"比平均更难预测"的 token 被压，写废话不再有收益。
-    # ⚠️ 必须在**整个 batch** 上算。dp_actor 的 micro_batch_size_per_gpu=1，
-    # 在 micro-batch 内中心化 = 按轨迹中心化，会把 win/fail 差异整个抹平。
+    # Common-mode baseline g_bar: the k3 estimator's gradient w.r.t. log pi is
+    # g = 1 - exp(log q - log pi^0). Since the gain is always negative and q < pi^0, g is
+    # always positive -- i.e. "push every action token down". Measured: the common mode is
+    # about 0.20/token while the win/fail difference is only 0.13, so the common mode is
+    # larger than the signal. And because TE covers only bare action tokens, the model can
+    # dodge it by moving mass onto non-action text: response_length went 931 -> 3264,
+    # success rate to zero, and te/kl self-servingly fell to 0.
+    # Subtracting g_bar makes the term zero-mean: only tokens that are *harder than
+    # average* to predict get pushed down, and padding with filler stops paying.
+    # It must be computed over the **whole batch**. dp_actor runs
+    # micro_batch_size_per_gpu=1, so centring within a micro-batch is centring per
+    # trajectory, which erases the win/fail difference entirely.
     _g_bar = float('nan')
     if int(te_valid.sum()) > 0:
         with torch.no_grad():
@@ -601,19 +632,19 @@ def assemble_te_tensors_token(index, slot_tok_lp, old_log_probs: torch.Tensor,
 def assemble_te_tensors(index, slot_lp, old_log_probs: torch.Tensor,
                         turn_ids: torch.Tensor, eta: float,
                         traj_return=None):
-    """把 slot log-prob 归并成 [bsz, n_turn] 的 te_log_q / te_valid。
+    """Merge slot log-probs into te_log_q / te_valid shaped [bsz, n_turn].
 
     index[i]   = (traj_idx, slot_turns, src_turn)
-    slot_lp[i] = [该样本每个 slot 的序列级 log-prob]
-    old_log_probs / turn_ids : [bsz, T]，rollout 的冻结 log-prob 与轮号
+    slot_lp[i] = [sequence-level log-prob of each slot in that sample]
+    old_log_probs / turn_ids : [bsz, T], the rollout's frozen log-probs and turn numbers
 
-    成员筛选：只保留 slot_turns[j] > src_turn 的（论文的 k>=1）。
-    ⚠️ 不能按 slot 下标 j>=1 筛 —— skip_invalid=True 时 slot1 可能已是 k>=1。
+    Member selection keeps only slot_turns[j] > src_turn (k>=1). It must not filter on the
+    slot index j>=1: with skip_invalid=True, slot 1 may already be a k>=1 member.
     """
     bsz = old_log_probs.shape[0]
     n_turn = int(turn_ids.max().item()) + 1 if (turn_ids >= 0).any() else 1
     n_turn = max(n_turn, 1)
-    # π^0 分量：按轮对 old_log_probs 分段求和（不额外做前向）
+    # The pi^0 component: segment-sum old_log_probs by turn (no extra forward pass)
     pi0 = segment_sum_by_turn(old_log_probs.float(), turn_ids, n_turn)   # [bsz,n_turn]
     has_turn = segment_sum_by_turn(torch.ones_like(old_log_probs.float()),
                                    turn_ids, n_turn) > 0                 # [bsz,n_turn]
@@ -627,21 +658,23 @@ def assemble_te_tensors(index, slot_lp, old_log_probs: torch.Tensor,
             v = row[j]
             if v != v:                       # NaN
                 continue
-            if t <= src:                     # k=0，按论文排除（用 rollout actor 代替）
+            if t <= src:                     # k=0, excluded (the rollout actor covers it)
                 n_k0 += 1
                 continue
             members.setdefault((ti, int(t)), []).append(float(v))
 
-    te_log_q = pi0.clone()                   # 默认 = π^0（无成员/t=0 时的退化分支）
+    te_log_q = pi0.clone()                   # default = pi^0 (no members, or t=0)
     te_valid = has_turn.clone()
-    # gains 存 (traj_idx, gain) —— **不能**只存 gain 再靠 zip 去配 members.items()：
-    # gains 仅在通过过滤且 log_qF 非 NaN 时才追加，而 members.items() 是全部条目，
-    # 按位置 zip 会把 gain 配到错误的轨迹上，gain_win/gain_fail 随之失去意义。
-    # (2026-09-15 修，dry-run 前两步的 gain_win 数值即受此影响，已作废)
-    # gains 存 (traj_idx, gain, n_tok)。n_tok = 该轮裸动作的 token 数，用来算
-    # **每 token** 的 gain。序列级 gain 会随动作长度线性放大（-1.6 nats/tok × 5 tok
-    # = -8），单看它无法判断 forecast 到底差多少；per-token 才是可比的量，也直接
-    # 决定 qF 在混合 q=(1-η)π⁰+η·qF 里占多大权重。
+    # gains holds (traj_idx, gain, n_tok). The traj_idx must be stored, not recovered by
+    # zipping against members.items(): gains is appended to only when an entry passes the
+    # filters and log_qF is non-NaN, while members.items() is every entry, so a positional
+    # zip attributes gains to the wrong trajectory and gain_win/gain_fail stop meaning
+    # anything.
+    # n_tok is the number of bare action tokens in that turn, used for a **per-token**
+    # gain. A sequence-level gain scales linearly with action length (-1.6 nats/tok x 5
+    # tok = -8), so on its own it cannot say how far off the forecast is; the per-token
+    # figure is the comparable one, and it directly sets qF's weight in the mixture
+    # q=(1-eta)pi^0+eta*qF.
     Ks, gains = [], []
     for (ti, t), ms in members.items():
         if t >= n_turn or ti >= bsz or not has_turn[ti, t]:
@@ -662,7 +695,7 @@ def assemble_te_tensors(index, slot_lp, old_log_probs: torch.Tensor,
         'te/span_len_mean': float(sum(n for _, _, n in gains) / len(gains)) if gains else 0.0,
         'te/gain_tok_all': float(sum(g / n for _, g, n in gains) / len(gains)) if gains else float('nan'),
     }
-    # 分成功/失败统计 gain —— 这是判断方法是否成立的关键指标
+    # Gain split by success/failure -- the key indicator of whether the method holds up
     if traj_return is not None and gains:
         gw = [(g, n) for ti, g, n in gains if float(traj_return[ti]) > 0.5]
         gf = [(g, n) for ti, g, n in gains if float(traj_return[ti]) <= 0.5]
@@ -670,6 +703,6 @@ def assemble_te_tensors(index, slot_lp, old_log_probs: torch.Tensor,
         meta['te/gain_fail'] = float(sum(g for g, _ in gf) / len(gf)) if gf else float('nan')
         meta['te/gain_tok_win'] = float(sum(g / n for g, n in gw) / len(gw)) if gw else float('nan')
         meta['te/gain_tok_fail'] = float(sum(g / n for g, n in gf) / len(gf)) if gf else float('nan')
-        meta['te/n_win_targets'] = float(len(gw))    # 样本量，太小则 gain_win 不可信
+        meta['te/n_win_targets'] = float(len(gw))    # sample size; too small and gain_win is noise
         meta['te/n_fail_targets'] = float(len(gf))
     return te_log_q, te_valid, meta

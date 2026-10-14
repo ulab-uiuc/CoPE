@@ -1,11 +1,12 @@
-"""TE 性质验证 1：RolloutHandler.turn_ids 的结构正确性。
+"""TE property 1: the structural correctness of RolloutHandler.turn_ids.
 
-断言：
-  (1) len(turn_ids) == len(input_ids)（每轮追加后都成立）
-  (2) turn_ids 中的非 -1 值恰好是 0..n_assistant-1，且每个轮号对应的 token
-      解码回来 == 该轮 assistant 的 content（即精确覆盖"动作正文"，不含模板）
-  (3) 观测(user)轮与模板 token 全为 -1
-  (4) response_turn_ids == turn_ids[len(prompt):] 截断到 max_response_len
+Asserts:
+  (1) len(turn_ids) == len(input_ids) (after every append)
+  (2) the non -1 values in turn_ids are exactly 0..n_assistant-1, and the tokens of each
+      turn decode back to that turn's assistant content -- i.e. they cover the "action
+      body" exactly, with no template
+  (3) observation (user) turns and template tokens are all -1
+  (4) response_turn_ids == turn_ids[len(prompt):] truncated to max_response_len
 """
 
 import os
@@ -58,45 +59,49 @@ def test_te_turn_ids():
         observation_mask=[0]*len(prompt_ids), prompt_observation_mask=[0]*len(prompt_ids),
         response_observation_mask=[],
     )
-    assert len(h.turn_ids) == len(h.input_ids), "初始化后长度不一致"
+    assert len(h.turn_ids) == len(h.input_ids), "lengths differ right after initialisation"
 
     for i, (act, obs) in enumerate(TURNS):
         h.add_assistant_message(tok, act)
-        assert len(h.turn_ids) == len(h.input_ids), f"轮 {i} assistant 后长度不一致"
-        assert h._assistant_turn == i, f"轮计数错: {h._assistant_turn} != {i}"
+        assert len(h.turn_ids) == len(h.input_ids), f"lengths differ after turn {i}'s assistant message"
+        assert h._assistant_turn == i, f"wrong turn count: {h._assistant_turn} != {i}"
         h.add_user_message(tok, obs)
-        assert len(h.turn_ids) == len(h.input_ids), f"轮 {i} user 后长度不一致"
+        assert len(h.turn_ids) == len(h.input_ids), f"lengths differ after turn {i}'s user message"
 
-    # (2) 每个轮号的 token 解码 == 该轮动作正文
+    # (2) each turn's tokens decode to that turn's action body
     seen = sorted({t for t in h.turn_ids if t >= 0})
-    assert seen == list(range(len(TURNS))), f"轮号集合错: {seen}"
+    assert seen == list(range(len(TURNS))), f"wrong set of turn numbers: {seen}"
     from verl.agent_trainer.ppo.action_forecast import extract_action
     for t, (act, _) in enumerate(TURNS):
         idx = [j for j, v in enumerate(h.turn_ids) if v == t]
-        assert idx == list(range(idx[0], idx[-1]+1)), f"轮 {t} 的 token 不连续: {idx}"
+        assert idx == list(range(idx[0], idx[-1]+1)), f"turn {t}'s tokens are not contiguous: {idx}"
         dec = tok.decode([h.input_ids[j] for j in idx])
-        # 2026-09-15 新口径：turn_ids 只标**裸动作**，不含 Thought 推理段。
-        # 必须与 TE 成员侧的 slot span 同口径，否则序列级 log-prob 差 9 倍 token 数。
+        # turn_ids marks the **bare action** only, excluding the Thought reasoning
+        # section. It has to use the same convention as the TE member side's slot spans,
+        # or the sequence-level log-probs differ by a factor of ~9 in token count.
         bare = extract_action(act, env='sciworld') or act
         assert dec.strip() == bare.strip(), \
-            f"轮 {t} 解码不符（应为裸动作）:\n  得到 {dec!r}\n  期望 {bare!r}"
+            f"turn {t} decodes wrong (should be the bare action):\n  got {dec!r}\n  expected {bare!r}"
 
-    # (3) prompt 段全 -1
-    assert set(h.turn_ids[:len(prompt_ids)]) == {-1}, "prompt 段混入了轮号"
+    # (3) the prompt segment is all -1
+    assert set(h.turn_ids[:len(prompt_ids)]) == {-1}, "turn numbers leaked into the prompt segment"
 
-    # (4) response_turn_ids 一致性
+    # (4) response_turn_ids consistency
     h.truncate_and_pad() if hasattr(h, 'truncate_and_pad') else None
     exp = h.turn_ids[len(h.prompt_turn_ids):][:h.max_response_len]
     assert h.response_turn_ids == exp or h.response_turn_ids == [], \
-        "response_turn_ids 与切片不一致"
+        "response_turn_ids does not match the slice"
 
-    print(f"性质1 PASS: {len(TURNS)} 轮，turn_ids 长度/连续性/解码/prompt段 全部正确")
-    print(f"  非 -1 token 数 = {sum(1 for t in h.turn_ids if t>=0)}, "
-          f"loss_mask=1 的 token 数 = {sum(h.loss_mask)}")
+    print(f"property 1 PASS: {len(TURNS)} turns; turn_ids length, contiguity, decoding "
+          f"and prompt segment all correct")
+    print(f"  non -1 tokens = {sum(1 for t in h.turn_ids if t>=0)}, "
+          f"tokens with loss_mask=1 = {sum(h.loss_mask)}")
 
-    # ---------- 新增性质 9：两侧口径一致（这是 gain 有意义的前提）----------
-    # 用带 Thought 的真实格式回复，验证 turn_ids 标出的 token 数
-    # ≈ TE 成员侧 slot span 的 token 数，而不是整段回复的长度。
+    # ---------- property 9: both sides use the same convention (the premise that makes
+    # the gain meaningful) ----------
+    # Use a realistically formatted reply with a Thought section and check that the token
+    # count turn_ids marks is close to the TE member side's slot span, not the length of
+    # the whole reply.
     FULL = ("Thought:\nThe task is to determine conductivity. I should focus on "
             "the metal fork first because it is the target object.\nAction:\nfocus on metal fork")
     msgs2 = [Message(role='user', content=SYS)]
@@ -118,8 +123,8 @@ def test_te_turn_ids():
     bare = extract_action(FULL, env='sciworld')
     n_bare = len(tok(bare, add_special_tokens=False)['input_ids'])
     dec = tok.decode([h2.input_ids[j] for j, v in enumerate(h2.turn_ids) if v == 0])
-    assert dec.strip() == bare.strip(), f"未标到裸动作: {dec!r} vs {bare!r}"
-    assert n_turn <= n_bare + 2, f"turn_ids 标了 {n_turn} token，裸动作只有 {n_bare}"
-    assert n_turn < n_full / 2, f"turn_ids({n_turn}) 不该接近整段回复({n_full})"
-    print(f"性质9 PASS: 整段回复 {n_full} token，turn_ids 只标 {n_turn} token "
-          f"(裸动作 {n_bare})，解码 = {bare!r}")
+    assert dec.strip() == bare.strip(), f"did not mark the bare action: {dec!r} vs {bare!r}"
+    assert n_turn <= n_bare + 2, f"turn_ids marked {n_turn} tokens, the bare action is only {n_bare}"
+    assert n_turn < n_full / 2, f"turn_ids({n_turn}) should not be close to the whole reply({n_full})"
+    print(f"property 9 PASS: the whole reply is {n_full} tokens, turn_ids marks only {n_turn} "
+          f"(bare action {n_bare}), decoding to {bare!r}")

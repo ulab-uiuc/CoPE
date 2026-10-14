@@ -444,25 +444,6 @@ class vLLMRollout(BaseRollout):
         if bool(self.config.get('te_enable', False)):
             batch['turn_ids'] = response_turn_ids[:, :response_length]
 
-        # One-time structural check for turn-level advantage estimators: the turn count
-        # derived from observation_mask must match the rollout's own round count. The
-        # mask is per-token and the round counter is per-episode, so a mismatch means
-        # the two disagree about what a turn is -- which would silently misalign any
-        # per-turn credit. Off by default; TAU2_CHECK_TURNS=1 to run it.
-        if os.environ.get("TAU2_CHECK_TURNS") == "1":
-            from verl.trainer.ppo.turn_structure import turn_boundaries_from_observation_mask
-            tb = turn_boundaries_from_observation_mask(observation_mask, response_mask)
-            derived = tb.sum(dim=-1)
-            rounds = torch.tensor(task_rounds, device=derived.device, dtype=derived.dtype)
-            bad = (derived - rounds).abs() > 1  # opening turn has no prior observation
-            if bad.any():
-                i = int(bad.nonzero()[0][0])
-                print(f"[turn-check] MISMATCH sample {i}: derived={int(derived[i])} "
-                      f"rounds={int(rounds[i])}")
-            else:
-                print(f"[turn-check] OK: {int(derived.min())}..{int(derived.max())} turns "
-                      f"per sample, matches task_rounds")
-
         # Expose per-sample chat history so downstream passes (e.g. the
         # world-model SFT update) can re-assemble fresh chat-template data
         # instead of reusing the rollout sequence in-place.
