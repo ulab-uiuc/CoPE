@@ -7,6 +7,8 @@ repos:
       - id: check-yaml
       - id: check-toml
       - id: check-added-large-files
+        # The README banner is ~1.3MB; the hook's default ceiling is 500KB.
+        args: ['--maxkb=2048']
       - id: check-json
       - id: detect-private-key
       - id: mixed-line-ending

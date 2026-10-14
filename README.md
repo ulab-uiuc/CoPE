@@ -1,4 +1,8 @@
-<h1 align="center">CoPE: Co-Evolving Acting and Forecasting for Language Agents</h1>
+<p align="center">
+  <img src="assets/cope-banner.png" width="100%" alt="CoPE" />
+</p>
+
+<h2 align="center">CoPE: Co-Evolving Acting and Forecasting for Language Agents</h2>
 
 <div align="center">
 
