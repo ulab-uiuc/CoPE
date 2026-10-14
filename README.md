@@ -15,23 +15,13 @@
 built on [AgentGym-RL](https://github.com/PolarisDane/Agentgym-RL)'s fork of
 [verl](https://github.com/volcengine/verl).
 
-Agentic RL benchmarks hand back a single reward at the end of a trajectory. On τ²-bench,
-79% of GRPO groups have no within-group spread — four fifths of a batch carries no
-gradient at all. CoPE adds auxiliary signals that are dense where the outcome reward is
-silent, without redefining what counts as success:
+Agentic RL benchmarks hand back a single reward at the end of a trajectory, which leaves
+most of a batch with no gradient. CoPE adds an **action forecasting loss**: at every step
+the agent predicts the next K actions it will take, and the realized rollout supervises
+that prediction. It runs as a separate SFT-style pass that never touches the policy
+gradient, so with the flag off the training path is stock GRPO.
 
-1. 🔭 *Action forecasting* — at every step the agent predicts the next K actions it will
-   take, and the realized rollout supervises that prediction. A separate SFT-style pass
-   that never touches the policy gradient. (`ACTION_FORECAST_ENABLE=True`)
-2. 🪢 *Temporal ensembling* — those forecasts are aggregated across time into a reference
-   distribution `q_t`, and the policy is distilled back toward it with a KL term.
-   (`TE_ENABLE=True`)
-3. 🧪 *Additivity* — with every flag off, the training path is element-wise identical to
-   stock GRPO, so a run of this repo reproduces the baseline before it reproduces the
-   method. `tests/test_additive.py` asserts this rather than leaving it to prose.
-
-Nine environments are wired in: SciWorld, BabyAI, τ²-bench, AppWorld, TextCraft,
-WebArena, SearchQA, ALFWorld and WebShop.
+Five environments are supported: SciWorld, ALFWorld, WebShop, AppWorld and τ²-bench.
 
 ## Get started
 
@@ -96,7 +86,7 @@ bash scripts/launch_sciworld_grpo_tmux.sh
 ACTION_FORECAST_ENABLE=True ACTION_FORECAST_COEF=0.01 \
   bash scripts/launch_sciworld_grpo_tmux.sh
 
-# with temporal ensembling
+# temporal ensembling, which distils the forecasts back into the policy
 TE_ENABLE=True TE_LAMBDA=0.1 TE_ETA=0.5 \
   bash scripts/launch_sciworld_grpo_tmux.sh
 ```
