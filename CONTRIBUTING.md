@@ -14,7 +14,6 @@ The code that is ours, and where contributions are most useful:
 
 ```
 src/verl/agent_trainer/ppo/    action_forecast, temporal_ensemble, ray_trainer wiring
-src/verl/trainer/ppo/          info_grpo, intrinsic_reward, turn_structure
 scripts/                       launchers, evaluation harness, scoring
 AgentGym/agentenv-tau2/        the τ²-bench environment server (in the submodule)
 ```

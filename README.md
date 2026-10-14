@@ -7,7 +7,7 @@ Reinforcement learning for LLM agents in interactive environments, built on
 Agentic RL benchmarks hand back one reward at the end of a trajectory. On τ²-bench, 79%
 of GRPO groups have no within-group spread, so four fifths of a batch carries no
 gradient at all. CoPE adds auxiliary training signals that are dense where the outcome
-reward is silent — per turn, or per predicted-action — without redefining what counts as
+reward is silent — one per action the agent takes — without redefining what counts as
 success.
 
 ## The signals
@@ -16,11 +16,10 @@ success.
 |---|---|---|
 | [`action_forecast.py`](src/verl/agent_trainer/ppo/action_forecast.py) | at each step the model predicts the next K actions it will take; the realized rollout supervises the prediction, as a separate SFT-style pass that never touches PG | `ACTION_FORECAST_ENABLE=True` |
 | [`temporal_ensemble.py`](src/verl/agent_trainer/ppo/temporal_ensemble.py) | aggregate those forecasts across time into a reference distribution `q_t` and distill the policy back toward it with a KL term | `TE_ENABLE=True` |
-| [`info_grpo.py`](src/verl/trainer/ppo/info_grpo.py) | turn-level information gain: how far seeing an observation moved the next-action distribution, measured against a masked-feedback counterfactual | `algorithm.adv_estimator=info_grpo` |
 
-All of them are additive. With every flag off, the training path is element-wise
-identical to stock GRPO — which the tests assert, so a run of this repo reproduces the
-baseline before it reproduces the method:
+Both are additive. With every flag off, the training path is element-wise identical to
+stock GRPO — which the tests assert, so a run of this repo reproduces the baseline
+before it reproduces the method:
 
 ```bash
 pytest tests/test_additive.py
@@ -130,7 +129,6 @@ python scripts/tau2_viz_trajectories.py "base=<tag>" "trained=<tag>" --out traj.
 ```
 src/verl/                 training framework (fork of AgentGym-RL's verl)
   agent_trainer/ppo/      action_forecast, temporal_ensemble, ray_trainer
-  trainer/ppo/            info_grpo, intrinsic_reward, turn_structure
   workers/                actor, rollout, FSDP workers
 AgentGym/                 submodule: every environment's server and client
   agentenv-tau2/          the τ²-bench environment server
@@ -148,8 +146,7 @@ tests/                    the additive claim, asserted element-wise
 τ²-bench is the most recent environment added and results there are **negative so far**,
 reported rather than omitted. Plain GRPO lifts exactly one domain at the other two's
 expense — reward shaping only decides which — and telecom regresses under every
-configuration tried. `info_grpo` is implemented and unit-tested but has not been run end
-to end; the shipped launchers pass `algorithm.adv_estimator=grpo`.
+configuration tried.
 
 [`docs/TAU2_GRPO.md`](docs/TAU2_GRPO.md) has the numbers, the two falsified explanations,
 and two traps worth knowing before comparing against anything: absolute scores are not
@@ -162,8 +159,8 @@ biased toward short tasks in a way that reads like signal.
 Builds on [AgentGym-RL](https://github.com/PolarisDane/Agentgym-RL) and
 [verl](https://github.com/volcengine/verl); `src/verl/` is a fork of the former, Apache
 2.0 licensed. The τ²-bench environment wraps
-[tau2-bench](https://github.com/sierra-research/tau2-bench). The information-gain
-objective follows InfoPO (arXiv 2603.00656).
+[tau2-bench](https://github.com/sierra-research/tau2-bench); RAGEN and InfoPO are the
+published τ²-bench baselines the numbers in `docs/TAU2_GRPO.md` are compared against.
 
 ## License
 
