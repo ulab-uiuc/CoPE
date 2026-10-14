@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "cope"
 version = "0.1.0"
-description = "Auxiliary training signals for reinforcement learning of LLM agents across interactive environments"
+description = "CoPE: Co-Evolving Acting and Forecasting for Language Agents"
 authors = ["Haofei Yu <yuhaofei44@gmail.com>"]
 license = "MIT"
 readme = "README.md"
