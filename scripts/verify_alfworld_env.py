@@ -1,74 +1,84 @@
-import requests
+"""Smoke-check an ALFWorld environment server: can it create and reset an env.
+
+    python scripts/verify_alfworld_env.py [game_id]
+
+Each step is reported separately so a failure points at one thing -- the service not
+being up, /create not returning an id, or /reset coming back without the fields the
+client expects.
+"""
 import json
-import traceback
 import sys
+import traceback
+
+import requests
+
 
 def verify_alfworld_reset(env_addr="http://127.0.0.1:36001", game_id=0):
-    print(f"--- 开始验证 AlfWorld 环境 (地址: {env_addr}, 游戏ID: {game_id}) ---")
-    
+    print(f"--- verifying AlfWorld env (addr: {env_addr}, game id: {game_id}) ---")
+
     try:
-        # 1. 创建环境实例 (模拟 /create)
-        print("步骤 1: 尝试创建环境实例...")
+        # 1. create an environment instance (/create)
+        print("step 1: creating an environment instance...")
         try:
             create_res = requests.post(f"{env_addr}/create", timeout=10)
         except requests.exceptions.ConnectionError:
-            print(f"CRITICAL: 无法连接到环境服务 {env_addr}。请确保服务已启动。")
+            print(f"CRITICAL: cannot reach the env service at {env_addr}. Is it running?")
             return
-            
+
         if create_res.status_code != 200:
-            print(f"FAILED: /create 请求失败，状态码: {create_res.status_code}")
-            print(f"响应内容: {create_res.text}")
+            print(f"FAILED: /create returned status {create_res.status_code}")
+            print(f"body: {create_res.text}")
             return
-        
+
         env_info = create_res.json()
         if "id" not in env_info:
-            print(f"FAILED: /create 返回结果中缺少 'id'. 响应: {env_info}")
+            print(f"FAILED: /create response has no 'id'. body: {env_info}")
             return
-        
-        env_id = env_info["id"]
-        print(f"SUCCESS: 环境创建成功，分配的 ID 为: {env_id}")
 
-        # 2. 调用重置 (模拟 /reset)
-        print(f"\n步骤 2: 尝试重置环境 (env_id={env_id}, game={game_id})...")
+        env_id = env_info["id"]
+        print(f"SUCCESS: environment created, id {env_id}")
+
+        # 2. reset it (/reset)
+        print(f"\nstep 2: resetting the environment (env_id={env_id}, game={game_id})...")
         reset_payload = {
             "id": env_id,
             "game": game_id,
             "world_type": "Text"
         }
         reset_res = requests.post(f"{env_addr}/reset", json=reset_payload, timeout=60)
-        
+
         if reset_res.status_code != 200:
-            print(f"FAILED: /reset 请求失败，状态码: {reset_res.status_code}")
-            print(f"响应内容: {reset_res.text}")
+            print(f"FAILED: /reset returned status {reset_res.status_code}")
+            print(f"body: {reset_res.text}")
             return
 
         response_data = reset_res.json()
-        
-        # 3. 验证关键字段
-        print("\n步骤 3: 验证返回值结构...")
+
+        # 3. check the fields the client depends on
+        print("\nstep 3: checking the response structure...")
         if "error" in response_data:
-            print(f"FAILED: 服务端返回了明确的错误信息:")
+            print("FAILED: the server reported an error:")
             print(f"  Error: {response_data['error']}")
             return
 
         required_keys = ["observation", "available_actions"]
         missing_keys = [k for k in required_keys if k not in response_data]
-        
-        if missing_keys:
-            print(f"FAILED: 响应中缺少关键 key: {missing_keys}")
-            print(f"完整响应内容: {json.dumps(response_data, indent=2, ensure_ascii=False)}")
-        else:
-            print("SUCCESS: reset 功能正常，返回了所有必需字段。")
-            print("-" * 20)
-            print(f"Observation 预览 (前100字):\n{response_data['observation'][:100]}...")
-            print("-" * 20)
-            print(f"Available Actions 数量: {len(response_data['available_actions'])}")
 
-    except Exception as e:
-        print(f"CRITICAL ERROR: 验证脚本运行过程中发生未捕获异常")
+        if missing_keys:
+            print(f"FAILED: response is missing required keys: {missing_keys}")
+            print(f"full body: {json.dumps(response_data, indent=2, ensure_ascii=False)}")
+        else:
+            print("SUCCESS: reset works and returned every required field.")
+            print("-" * 20)
+            print(f"Observation (first 100 chars):\n{response_data['observation'][:100]}...")
+            print("-" * 20)
+            print(f"Available actions: {len(response_data['available_actions'])}")
+
+    except Exception:
+        print("CRITICAL ERROR: the verification script raised an uncaught exception")
         traceback.print_exc()
 
+
 if __name__ == "__main__":
-    # 可以通过命令行参数指定 game_id，默认使用 1
     target_game_id = int(sys.argv[1]) if len(sys.argv) > 1 else 1
     verify_alfworld_reset(env_addr="http://127.0.0.1:36001", game_id=target_game_id)

@@ -1,145 +1,120 @@
-# CoPE
+<h1 align="center">CoPE: Auxiliary Training Signals for Agent RL</h1>
 
-Reinforcement learning for LLM agents across interactive environments, built on
-[AgentGym-RL](https://github.com/PolarisDane/Agentgym-RL)'s verl fork.
+<div align="center">
 
-The contribution is a set of auxiliary training signals that supplement the sparse
-trajectory-level reward these benchmarks provide:
+[![Python 3.10](https://img.shields.io/badge/python-3.10-blue)](https://www.python.org/downloads/release/python-3100/)
+[![GitHub pull request](https://img.shields.io/badge/PRs-welcome-orange)](https://github.com/ulab-uiuc/CoPE/pulls)
+[![Arxiv](https://img.shields.io/badge/arXiv-Coming%20soon-b31b1b)](https://github.com/ulab-uiuc/CoPE)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-| module | idea |
-|---|---|
-| `src/verl/agent_trainer/ppo/action_forecast.py` | forecast the next actions ahead of acting and score the agent against them |
-| `src/verl/trainer/ppo/info_grpo.py` | turn-level information gain from a masked-feedback counterfactual |
+</div>
 
-All of them are additive. With every flag off the training path is the stock GRPO one,
-which the unit tests assert element-wise — so a run of this repo reproduces the baseline
-before it reproduces the method:
+## Introduction
 
-```bash
-pytest tests/test_additive.py
-```
+**CoPE** is a reinforcement-learning stack for LLM agents in interactive environments,
+built on [AgentGym-RL](https://github.com/PolarisDane/Agentgym-RL)'s fork of
+[verl](https://github.com/volcengine/verl).
 
-## Environments
+Agentic RL benchmarks hand back a single reward at the end of a trajectory, which leaves
+most of a batch with no gradient. CoPE adds an **action forecasting loss**: at every step
+the agent predicts the next K actions it will take, and the realized rollout supervises
+that prediction. It runs as a separate SFT-style pass that never touches the policy
+gradient, so with the flag off the training path is stock GRPO.
 
-| environment | train | eval | launcher |
-|---|---|---|---|
-| SciWorld | ✓ | ✓ | ✓ |
-| TextCraft | ✓ | ✓ | |
-| WebArena | ✓ | ✓ | |
-| SearchQA | ✓ | ✓ | |
-| BabyAI | ✓ | ✓ | ✓ |
-| ALFWorld | | | ✓ |
-| WebShop | | | ✓ |
-| τ²-bench | ✓ | ✓ | ✓ |
+Five environments are supported: SciWorld, ALFWorld, WebShop, AppWorld and τ²-bench.
 
-Two baselines are configured alongside the method: `examples/train/AgentGym-RL/` and
-`examples/train/ScalingInter-RL/`. Method variants are driven by environment variables on
-the `scripts/run_*_grpo_train.sh` launchers — `ACTION_FORECAST_ENABLE`,
-`INFO_INTRINSIC_WEIGHT` — rather than by forked copies of the script.
+## Get started
 
-## Layout
+### Clone with the submodule
 
-```
-src/verl/                 the training framework (fork of AgentGym-RL's verl)
-  agent_trainer/ppo/      action_forecast, sft_common, ray_trainer
-  trainer/ppo/            info_grpo, intrinsic_reward, turn_structure
-  workers/                actor, rollout, FSDP workers
-AgentGym/                  submodule: every environment's server and client
-  agentenv-tau2/           the τ²-bench environment server
-  agentenv/envs/tau2.py    the τ²-bench client
-examples/train/           per-environment configs, two baselines, method variants
-examples/eval/            evaluation configs
-scripts/                  launchers, evaluation harness, scoring, visualisation
-docs/TAU2_GRPO.md         τ²-bench protocol alignment and findings
-data/                     τ²-bench item-id datasets
-tests/                    the additive claim, asserted element-wise
-```
-
-Training scripts read item-id files from `data/`. The τ²-bench ones are committed;
-for the other environments they are generated per checkout, since they are derived
-from each benchmark's own task list rather than authored here.
-
-## Setup
+The `AgentGym` submodule carries every environment server and the `agentenv` base
+classes, so it is required for any run.
 
 ```bash
 git clone --recurse-submodules https://github.com/ulab-uiuc/CoPE.git
-# the AgentGym submodule carries every environment server except tau2, and the
-# agentenv base classes that tau2's own client subclasses -- so it is required
-# even for a tau2-only run
+cd CoPE
+# if you already cloned without it:
 git submodule update --init AgentGym
 ```
 
-Environment servers run as separate processes from training — several need Python
-versions that conflict with the training stack (WebShop is on 3.8, τ²-bench needs ≥3.12
-against a 3.10 trainer), so each is its own HTTP service that training reaches over
-`requests`.
+### Set up the environments
 
-For τ²-bench specifically, see `docs/TAU2_GRPO.md`: the benchmark must be pinned to
-commit `c5b2d22`, and evaluation goes through tau2's own CLI. Those two choices are what
-make numbers comparable to published baselines.
+Training and the environment servers run as separate processes with separate
+interpreters — WebShop needs Python 3.8 and τ²-bench needs ≥3.12, neither of which the
+3.10 trainer can host. Each environment is its own HTTP service that training reaches
+over `requests`.
 
 ```bash
-# τ²-bench
-git clone https://github.com/sierra-research/tau2-bench.git
-git -C tau2-bench checkout c5b2d22
-conda create -y -p ./envs/tau2 python=3.12
-./envs/tau2/bin/pip install -e tau2-bench -e AgentGym/agentenv-tau2 gymnasium
+# the trainer (Python 3.10 + vllm); see AgentGym-RL's install guide for the details
+conda create -n agentgym-rl python=3.10
 
-# the item-id files in data/ are committed, but this regenerates them
-./envs/tau2/bin/python scripts/make_tau2_itemid.py \
-    --domains retail airline telecom --split train --out data/
+# one env per environment you intend to run, e.g. SciWorld
+conda create -n agentenv-sciworld python=3.10
 ```
 
-## Running
+### Configure
+
+The launchers read everything from environment variables, so a variant is one extra
+variable rather than a forked script.
 
 ```bash
-# a configured environment, baseline
-bash examples/train/AgentGym-RL/sciworld_train.sh
+export CONDA_SH=$HOME/miniconda3/etc/profile.d/conda.sh
+export TRAIN_ENV=agentgym-rl           # conda env for the trainer
+export SCIWORLD_ENV=agentenv-sciworld  # conda env for the env server
+export MODEL_PATH=Qwen/Qwen2.5-7B-Instruct
+export CUDA_VISIBLE_DEVICES=0,1,2,3
+```
 
-# with the action-forecast auxiliary loss
-ACTION_FORECAST_ENABLE=True ACTION_FORECAST_COEF=0.01 \
-  bash scripts/run_sciworld_grpo_train.sh
+API keys are read from files under `.secrets/` (git-ignored), never passed on a command
+line — `scontrol show job` and any `env` dump in a log would otherwise expose them:
 
-# tmux launchers bring up env servers + training together
+```bash
+mkdir -p .secrets && echo "sk-..." > .secrets/openai_api_key
+```
+
+### Run
+
+The `launch_*_grpo_tmux.sh` scripts bring up the environment servers and training
+together, each in its own tmux session, and wait for the servers to become healthy
+before training starts.
+
+```bash
+# baseline GRPO
 bash scripts/launch_sciworld_grpo_tmux.sh
-bash scripts/launch_tau2_grpo_tmux.sh
 
-# τ²-bench with InfoPO's published hyperparameters, for a comparable run
-bash scripts/launch_tau2_infopo_aligned.sh
+# with action forecasting
+ACTION_FORECAST_ENABLE=True ACTION_FORECAST_COEF=0.01 \
+  bash scripts/launch_sciworld_grpo_tmux.sh
+
+# temporal ensembling, which distils the forecasts back into the policy
+TE_ENABLE=True TE_LAMBDA=0.1 TE_ETA=0.5 \
+  bash scripts/launch_sciworld_grpo_tmux.sh
 ```
 
-τ²-bench evaluation, scoring against published numbers, and the trajectory viewer:
+Two published baselines are configured as plain config rather than env vars:
 
 ```bash
-sbatch --export=ALL,TAU2_VERSION=infopo,MODEL_PATH=<hf-ckpt>,TAG=mine \
-  scripts/sbatch_tau2_align.sh
-python scripts/tau2_align_score.py --tag mine
-python scripts/tau2_viz_trajectories.py "base=<tag>" "trained=<tag>" --out traj.html
+bash examples/train/AgentGym-RL/sciworld_train.sh
+bash examples/train/ScalingInter-RL/sciworld_train.sh
 ```
 
-## τ²-bench status
+Evaluation configs live in `examples/eval/`. τ²-bench runs under the published protocol
+and has its own scoring and trajectory viewer — see
+[`docs/TAU2_GRPO.md`](docs/TAU2_GRPO.md), which also carries the measured results
+(negative so far, reported rather than omitted) and two traps worth knowing before
+comparing any numbers against a paper.
 
-τ²-bench is the most recent addition and its results are negative so far, reported here
-rather than omitted. Avg@4 on the test splits, gpt-4o-mini customer:
+## License
 
-| | airline | retail | telecom |
-|---|---|---|---|
-| base | 8.8 | 9.4 | 8.1 |
-| GRPO @ step 25 | **18.8** | 10.0 | 1.9 |
-| RAGEN (published) | 15.0 | 17.5 | 17.5 |
-| InfoPO (published) | 16.3 | 18.8 | 18.1 |
+MIT, see [LICENSE](LICENSE). The vendored code under `src/verl/` carries its own
+Apache 2.0 headers from upstream verl.
 
-Plain GRPO lifts one domain at the others' expense — reward shaping only decides which
-(binary → airline, dense → retail) — and telecom regresses under every configuration
-tried. Telecom's failure is a decoding collapse rather than a statistical shortfall: the
-policy emits bare `<tool_call>` tags with no JSON body and loops to the step cap, in 90%
-of base episodes and 99% after training. Published RAGEN is itself GRPO-family and does
-reach 15.0/17.5/17.5, so the gap is a missing mechanism; variance-based trajectory
-filtering (`GRPO_FILTER_DEGENERATE=1`) and `info_grpo` are implemented here but not yet
-run end to end.
-
-`docs/TAU2_GRPO.md` carries the details, including two traps worth knowing before
-comparing any numbers: absolute scores are not transferable across evaluation setups
-(the same base model scores 8.8 on airline under gpt-4o-mini and 15.0 under a local 7B
-customer), and a partially-complete tau2 run is biased toward short tasks in a way that
-reads like signal.
+<p align="center">
+<a href="https://star-history.com/#ulab-uiuc/CoPE">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=ulab-uiuc/CoPE&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=ulab-uiuc/CoPE&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=ulab-uiuc/CoPE&type=Date" />
+  </picture>
+</a>
+</p>

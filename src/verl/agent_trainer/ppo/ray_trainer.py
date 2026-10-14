@@ -203,28 +203,6 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
                                                                         index=index)
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
-    elif adv_estimator == 'info_grpo':
-        # GRPO's outcome term plus a turn-level information gain. The intrinsic tensor
-        # is produced during the actor update (it needs a forward pass); when it is
-        # absent this falls back to exactly plain GRPO, so the branch is safe to select
-        # before the producer side is wired up.
-        from verl.trainer.ppo.info_grpo import compute_info_grpo_advantage
-        token_level_rewards = data.batch['token_level_rewards']
-        index = data.non_tensor_batch['uid']
-        response_mask = data.batch['response_mask']
-        intrinsic = data.batch.get('token_level_intrinsic_rewards')
-        if intrinsic is None:
-            intrinsic = torch.zeros_like(token_level_rewards)
-        advantages, returns = compute_info_grpo_advantage(
-            token_level_rewards=token_level_rewards,
-            token_level_intrinsic_rewards=intrinsic,
-            eos_mask=response_mask,
-            index=index,
-            intrinsic_weight=float(os.environ.get('INFO_INTRINSIC_WEIGHT', 0.1)),
-            gate_temperature=float(os.environ.get('INFO_GATE_TEMP', 0.05)),
-        )
-        data.batch['advantages'] = advantages
-        data.batch['returns'] = returns
     elif adv_estimator == 'rloo':
         token_level_rewards = data.batch['token_level_rewards']
         index = data.non_tensor_batch['uid']
@@ -1118,14 +1096,6 @@ class RayPPOTrainer(object):
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
                         batch = batch.union(old_log_prob)
 
-                    # # 在 batch dict 进入 update 之前
-                    # batch.batch['old_log_probs'] = torch.nan_to_num(
-                    #     batch.batch['old_log_probs'],
-                    #     nan=-10.0,
-                    #     posinf=0.0,      # log prob 不应该 > 0，但兜底
-                    #     neginf=-10.0,    # 这是核心防护
-                    # )
-
                     # ---- Temporal Ensembling: score forecast members, assemble q ----
                     # Must run after old_log_prob (the pi^0 component comes from it) and
                     # before any optimizer step (the weights are then the frozen theta-bar).
@@ -1159,17 +1129,6 @@ class RayPPOTrainer(object):
                             metrics.update(kl_metrics)
                         else:
                             batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
-
-                        # info_grpo needs a turn-level information gain, which costs an
-                        # extra forward pass, so only produce it when that estimator is
-                        # actually selected.
-                        if self.config.algorithm.adv_estimator == 'info_grpo':
-                            with _timer('intrinsic_reward', timing_raw):
-                                ir = self.actor_rollout_wg.compute_intrinsic_rewards(batch)
-                                batch = batch.union(ir)
-                                _m = batch.batch['token_level_intrinsic_rewards']
-                                metrics['info/intrinsic_mean'] = _m.mean().item()
-                                metrics['info/intrinsic_nonzero_frac'] = (_m != 0).float().mean().item()
 
                         # compute advantages, executed on the driver process
                         batch = compute_advantage(batch,
