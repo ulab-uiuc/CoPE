@@ -1,4 +1,4 @@
-<h1 align="center">CoPE: Auxiliary Training Signals for Agent RL</h1>
+<h1 align="center">CoPE: Co-Evolving Acting and Forecasting for Language Agents</h1>
 
 <div align="center">
 
