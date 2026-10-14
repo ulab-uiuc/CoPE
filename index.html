@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CoPE: Co-Evolving Acting and Forecasting for Language Agents</title>
+
+<meta name="description" content="CoPE adds a multi-step action forecasting loss to agentic RL. One backbone acts and forecasts, so the two co-evolve: up to 2x the sample efficiency of GRPO with no inference overhead." />
+<meta property="og:title" content="CoPE: Co-Evolving Acting and Forecasting for Language Agents" />
+<meta property="og:description" content="A multi-step action forecasting loss for agentic RL. Up to 2x the sample efficiency of GRPO, with no inference overhead." />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://ulab-uiuc.github.io/CoPE/static/images/cope-banner.png" />
+<meta name="twitter:card" content="summary_large_image" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="static/css/style.css" />
+</head>
+
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <img src="static/images/cope-banner.png"
+         alt="CoPE: Co-Evolving Acting and Forecasting for Language Agents" />
+
+    <p class="authors">
+      Haofei Yu<sup>1*</sup>,
+      Yixing Chen<sup>2*</sup>,
+      Yining Zhao<sup>1</sup>,
+      Xuyan Ye<sup>1</sup>,
+      Yuxiang Liu<sup>1</sup>,<br />
+      Zhigang Hua<sup>3</sup>,
+      Yan Xie<sup>3</sup>,
+      Shuang Yang<sup>3</sup>,
+      Jiaxuan You<sup>1</sup>
+    </p>
+
+    <p class="affil">
+      <sup>1</sup>University of Illinois Urbana-Champaign &nbsp;·&nbsp;
+      <sup>2</sup>University of California San Diego &nbsp;·&nbsp;
+      <sup>3</sup>Meta AI
+    </p>
+
+    <p class="note">*Equal contribution</p>
+
+    <nav class="buttons">
+      <span class="btn" aria-disabled="true">
+        <svg viewBox="0 0 384 512" aria-hidden="true"><path d="M320 464c8.8 0 16-7.2 16-16V160H256c-17.7 0-32-14.3-32-32V48H64c-8.8 0-16 7.2-16 16V448c0 8.8 7.2 16 16 16H320zM0 64C0 28.7 28.7 0 64 0H229.5c17 0 33.3 6.7 45.3 18.7l90.5 90.5c12 12 18.7 28.3 18.7 45.3V448c0 35.3-28.7 64-64 64H64c-35.3 0-64-28.7-64-64V64z"/></svg>
+        Paper — coming soon
+      </span>
+      <a class="btn" href="https://github.com/ulab-uiuc/CoPE">
+        <svg viewBox="0 0 496 512" aria-hidden="true"><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8z"/></svg>
+        Code
+      </a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<section>
+  <div class="wrap">
+    <h2>Abstract</h2>
+    <p class="lede">
+      Training language agents is bottlenecked by the high cost of long-horizon rollouts,
+      yet standard agentic reinforcement learning (RL) learns only from a terminal scalar
+      reward, leaving the supervision in intermediate steps largely unused. Prior work
+      exploits this supervision through <i>value targets</i> that estimate per-step success
+      probabilities or <i>observation targets</i> that fit environment response. Both are hard
+      to construct well: (1) value targets come from the same single scalar signal for each
+      step in the trajectory, and (2) observation targets, such as web pages and terminal
+      logs, are long and noisy and reach only one step ahead. We propose <b>CoPE</b>, which
+      adds a third kind of <i>multi-step action targets</i>. On successful on-policy
+      trajectories, CoPE trains the policy backbone to generate the action sequences that
+      follows each history. Each action is also supervised when forecast from the preceding
+      histories, forming a temporal ensemble that the shared backbone absorbs during
+      training, and this enables acting and forecasting to co-evolve. The policy still acts
+      one step at a time at inference, with no overhead. Across five benchmarks (ALFWorld,
+      ScienceWorld, WebShop, &tau;<sup>2</sup>-bench, and AppWorld), CoPE (1) achieves
+      stronger aggregate performance than GRPO and RL baselines with predictive auxiliary
+      targets across simulated environments, while improving overall performance on both
+      realistic applications; (2) delivers up to 1.9&times; and 2.0&times; higher sample
+      efficiency than ECHO and GRPO, respectively, on ScienceWorld; and (3) achieves these
+      gains with a single policy backbone, without additional models, separate pretraining,
+      or inference overhead.
+    </p>
+
+    <div class="cards">
+      <div class="card">
+        <span class="num">+5.0</span>
+        <span class="lbl">success-rate points over GRPO on ALFWorld, +12.5 on WebShop, +8.0 on ScienceWorld</span>
+      </div>
+      <div class="card">
+        <span class="num">2.0&times;</span>
+        <span class="lbl">more sample-efficient than GRPO on ScienceWorld, 1.6&times; on AppWorld</span>
+      </div>
+      <div class="card">
+        <span class="num">0</span>
+        <span class="lbl">extra models, pretraining stages, or inference-time cost — one backbone</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Why action targets</h2>
+    <figure>
+      <img src="static/images/fig-motivation.png"
+           alt="Three panels: noisy observations versus clean actions; the three kinds of targets; CoPE's sample efficiency on AppWorld." />
+      <figcaption>
+        <b>Motivation.</b> (a) A terminal observation contains many tokens that carry no
+        learning signal, while the action that follows is short and clean. (b) Value targets
+        share one trajectory-level signal across every step; observation targets reach only
+        one step ahead; action targets are step-specific and multi-step. (c) CoPE reaches
+        GRPO's score in 1.6&times; fewer training steps on AppWorld.
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Method</h2>
+    <figure>
+      <img src="static/images/fig-overview.png"
+           alt="Overview of CoPE: one shared backbone trained with the GRPO loss and an action forecasting loss, and the temporal ensemble this induces." />
+      <figcaption>
+        <b>Overview of CoPE.</b> (i) Joint training of acting and forecasting. One LLM
+        backbone is shared by both, and &#8466;<sub>AF</sub> fits the successful action chunk
+        <i>a</i><sub>t:t+K</sub>. (ii) Co-evolution of acting and forecasting. Acting helps
+        forecasting via trajectory collection, and forecasting helps acting via implicit
+        temporal ensembling.
+      </figcaption>
+    </figure>
+
+    <h3>Acting helps forecasting</h3>
+    <p>
+      GRPO supervises each history <i>h<sub>t</sub></i> with its single-step marginal only —
+      it never asks the representation at <i>h<sub>t</sub></i> to anticipate the actions that
+      actually realize success. CoPE adds an action forecasting loss that fits the full
+      horizon-<i>K</i> chunk, read directly off successful on-policy rollouts. No world model
+      has to be learned to simulate future states: intermediate observations are marginalized
+      out by the rollouts themselves.
+    </p>
+
+    <h3>Forecasting helps acting</h3>
+    <p>
+      Because the forecaster shares parameters with the acting policy, each action ends up
+      supervised from several preceding histories at once — a temporal ensemble the backbone
+      absorbs during training. The paper isolates this direction by training a separate LoRA
+      forecaster that receives no policy gradient: explicit ensembling at test time improves
+      GRPO and narrows its gap to CoPE, but adds nothing to CoPE, which already contains the
+      information in a single forward pass.
+    </p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Results</h2>
+
+    <div class="scroll">
+      <table>
+        <caption>
+          <b>Simulated agent tasks.</b> ALFWorld reports success rate (%) per subtask and
+          overall; WebShop and ScienceWorld report average score and success rate (%).
+          All RL methods use Qwen2.5-7B-Instruct.
+        </caption>
+        <thead>
+          <tr>
+            <th rowspan="2">Method</th>
+            <th colspan="7">ALFWorld</th>
+            <th colspan="2">WebShop</th>
+            <th colspan="2">ScienceWorld</th>
+          </tr>
+          <tr>
+            <th>Pick</th><th>Look</th><th>Clean</th><th>Heat</th><th>Cool</th><th>Pick2</th><th>All</th>
+            <th>Score</th><th>Succ.</th>
+            <th>Score</th><th>Succ.</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="group"><td colspan="12">Agentic prompting</td></tr>
+          <tr><td>Gemini-2.5-flash-lite</td><td>82.6</td><td>36.8</td><td>37.8</td><td>20.0</td><td>21.4</td><td>48.9</td><td>46.0</td><td>7.8</td><td>6.5</td><td>13.9</td><td>15.0</td></tr>
+          <tr><td>GPT-5-mini</td><td>82.6</td><td>47.4</td><td>27.0</td><td>36.0</td><td>14.3</td><td>75.6</td><td>52.0</td><td>11.7</td><td>7.0</td><td>40.1</td><td>43.5</td></tr>
+          <tr><td>GPT-5.5</td><td>97.8</td><td>100.0</td><td>91.9</td><td>88.0</td><td>89.3</td><td>93.3</td><td>93.5</td><td>66.1</td><td>56.5</td><td>66.8</td><td>79.0</td></tr>
+          <tr><td>Qwen2.5-7B</td><td>69.6</td><td>31.6</td><td>29.7</td><td>36.0</td><td>17.9</td><td>11.1</td><td>34.0</td><td>25.3</td><td>2.5</td><td>&minus;13.3</td><td>2.5</td></tr>
+          <tr><td>Qwen2.5-7B + Reflexion</td><td>84.8</td><td>26.3</td><td>51.4</td><td>44.0</td><td>32.1</td><td>55.6</td><td>54.0</td><td>21.9</td><td>4.0</td><td>&minus;3.7</td><td>6.0</td></tr>
+
+          <tr class="group"><td colspan="12">RL methods w/o auxiliary loss</td></tr>
+          <tr><td>RFT</td><td>91.3</td><td>73.7</td><td>73.0</td><td>84.0</td><td>64.3</td><td>71.1</td><td>77.0</td><td>51.4</td><td>16.0</td><td>&minus;11.0</td><td>4.5</td></tr>
+          <tr><td>GRPO</td><td>100.0</td><td>73.7</td><td>94.6</td><td>84.0</td><td>89.3</td><td>88.9</td><td>90.5</td><td>84.1</td><td>64.5</td><td>52.8</td><td>64.5</td></tr>
+          <tr><td>GRPO + EMPG</td><td>97.8</td><td>57.9</td><td>89.2</td><td>88.0</td><td>89.3</td><td>95.6</td><td>89.5</td><td>84.3</td><td>67.5</td><td>48.2</td><td>46.5</td></tr>
+
+          <tr class="group"><td colspan="12">RL methods w/ auxiliary loss</td></tr>
+          <tr><td>RWML + GRPO</td><td>100.0</td><td>89.5</td><td>89.2</td><td>92.0</td><td>96.4</td><td>84.4</td><td>92.0</td><td>81.2</td><td>64.0</td><td>39.4</td><td>65.0</td></tr>
+          <tr><td>ECHO</td><td>97.8</td><td>89.5</td><td>91.9</td><td>96.0</td><td>96.4</td><td>93.3</td><td>94.5</td><td>85.0</td><td>71.5</td><td>44.8</td><td>67.5</td></tr>
+          <tr class="ours"><td>CoPE</td><td>100.0</td><td>100.0</td><td>97.3</td><td>96.0</td><td>89.3</td><td>91.1</td><td>95.5</td><td>89.4</td><td>77.0</td><td>53.4</td><td>72.5</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Realistic applications</h3>
+
+    <div class="scroll">
+      <table>
+        <caption>
+          <b>&tau;<sup>2</sup>-bench.</b> Avg@4 task success rate with Qwen2.5-7B-Instruct.
+        </caption>
+        <thead>
+          <tr><th>Method</th><th>Telecom</th><th>Retail</th><th>Airline</th><th>Overall</th></tr>
+        </thead>
+        <tbody>
+          <tr class="group"><td colspan="5">Agentic prompting</td></tr>
+          <tr><td>Qwen2.5</td><td>14.4</td><td>13.1</td><td>7.5</td><td>11.7</td></tr>
+          <tr><td>ReAct</td><td>13.1</td><td>13.8</td><td>10.0</td><td>12.3</td></tr>
+          <tr class="group"><td colspan="5">Published RL results</td></tr>
+          <tr><td>RAGEN</td><td>17.5</td><td>17.5</td><td>15.0</td><td>16.7</td></tr>
+          <tr><td>Search-R1</td><td>15.6</td><td>15.0</td><td>10.0</td><td>13.5</td></tr>
+          <tr><td>UserRL</td><td>13.8</td><td>16.9</td><td>7.5</td><td>12.7</td></tr>
+          <tr><td>InfoPO</td><td>18.1</td><td>18.8</td><td>16.3</td><td>17.7</td></tr>
+          <tr class="group"><td colspan="5">Our controlled runs</td></tr>
+          <tr><td>GRPO (ours)</td><td>38.8</td><td>17.5</td><td>26.2</td><td>27.5</td></tr>
+          <tr class="ours"><td>CoPE</td><td>40.6</td><td>29.4</td><td>16.2</td><td>28.7</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="scroll">
+      <table>
+        <caption>
+          <b>AppWorld.</b> Success rate (%) with Qwen2.5-14B-Instruct.
+          <sup>&dagger;</sup> marks results reported in G2PO.
+        </caption>
+        <thead>
+          <tr><th>Method</th><th>Normal</th><th>Challenge</th></tr>
+        </thead>
+        <tbody>
+          <tr class="group"><td colspan="3">Agentic prompting</td></tr>
+          <tr><td>Qwen2.5</td><td>1.2</td><td>0.7</td></tr>
+          <tr><td>ReAct</td><td>10.7</td><td>2.6</td></tr>
+          <tr class="group"><td colspan="3">Published RL results</td></tr>
+          <tr><td>PPO<sup>&dagger;</sup></td><td>19.1</td><td>&mdash;</td></tr>
+          <tr><td>RLOO<sup>&dagger;</sup></td><td>24.8</td><td>&mdash;</td></tr>
+          <tr><td>GiGPO<sup>&dagger;</sup></td><td>25.7</td><td>&mdash;</td></tr>
+          <tr><td>GRPO<sup>&dagger;</sup></td><td>24.8</td><td>&mdash;</td></tr>
+          <tr class="group"><td colspan="3">Our controlled runs</td></tr>
+          <tr><td>GRPO (ours)</td><td>41.7</td><td>18.7</td></tr>
+          <tr class="ours"><td>CoPE</td><td>55.4</td><td>22.5</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p style="margin-top:24px">
+      CoPE improves over GRPO on every benchmark in aggregate. The gains are not uniform
+      inside a benchmark: on &tau;<sup>2</sup>-bench the overall lift comes from a ~12-point
+      gain on Retail against a drop on Airline, and on ALFWorld the Cool and Pick2 subtasks
+      favour ECHO or RWML. The paper analyses both.
+    </p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Cost</h2>
+    <p>
+      CoPE adds one supervised pass over successful rollouts, so its direct cost scales with
+      the batch success rate. On ScienceWorld that pass adds <b>11%</b> time per training
+      step on average — while the shorter rollouts a better policy produces cut the measured
+      end-to-end step time by <b>9%</b> against GRPO. At inference the policy still acts one
+      step at a time, with nothing extra to run.
+    </p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>BibTeX</h2>
+<pre>@article{yu2026cope,
+  title   = {Co-Evolving Acting and Forecasting for Language Agents},
+  author  = {Yu, Haofei and Chen, Yixing and Zhao, Yining and Ye, Xuyan and
+             Liu, Yuxiang and Hua, Zhigang and Xie, Yan and Yang, Shuang and
+             You, Jiaxuan},
+  journal = {arXiv preprint},
+  year    = {2026}
+}</pre>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>
+      Code at <a href="https://github.com/ulab-uiuc/CoPE">ulab-uiuc/CoPE</a>.
+      Page source on the <code>gh-pages</code> branch.
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>
