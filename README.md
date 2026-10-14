@@ -104,47 +104,6 @@ and has its own scoring and trajectory viewer — see
 (negative so far, reported rather than omitted) and two traps worth knowing before
 comparing any numbers against a paper.
 
-## Developing
-
-### Install the dev tooling
-
-```bash
-poetry install --all-extras
-poetry run pre-commit install
-```
-
-This covers lint and tests only; the training stack is the conda environment above.
-
-### New branch for each feature
-
-`git checkout -b feature/feature-name` and PR to the `main` branch.
-
-### Before committing
-
-```bash
-pre-commit run --all-files
-pytest tests/
-```
-
-New auxiliary signals must be **additive**: with the feature's flag off, the training
-path has to be element-wise identical to stock GRPO. Extend `tests/test_additive.py`
-rather than working around it. Comments and identifiers are English-only.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the rest.
-
-### Check the GitHub Action result
-
-CI runs ruff, mypy, codespell, pre-commit and pytest on Python 3.10. Make sure it passes
-before asking for review.
-
-## Acknowledgements
-
-Builds on [AgentGym-RL](https://github.com/PolarisDane/Agentgym-RL) and
-[verl](https://github.com/volcengine/verl); `src/verl/` is a fork of the former. The
-τ²-bench environment wraps
-[tau2-bench](https://github.com/sierra-research/tau2-bench); RAGEN and InfoPO are the
-published τ²-bench baselines the numbers in `docs/TAU2_GRPO.md` are compared against.
-
 ## License
 
 MIT, see [LICENSE](LICENSE). The vendored code under `src/verl/` carries its own
