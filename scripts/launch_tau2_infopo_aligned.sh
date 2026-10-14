@@ -133,12 +133,12 @@ EXPORTS="${EXPORTS},ENVS_PER_GPU=${ENVS_PER_GPU},SAVE_FREQ=${SAVE_FREQ}"
 EXPORTS="${EXPORTS},MODEL_PATH=${MODEL_PATH},EXP_NAME=${EXP_NAME},RESUME_MODE=disable"
 EXPORTS="${EXPORTS},TRAIN_FILE=${TRAIN_FILE}"
 
-# Anything else already set in this shell (action-forecast, info-grpo, ...) rides along, so
-# an ablation is one extra variable rather than a forked copy of this script.
+# Anything else already set in this shell (action-forecast, temporal ensembling, ...)
+# rides along, so an ablation is one extra variable rather than a forked copy of this
+# script.
 for v in ACTION_FORECAST_ENABLE ACTION_FORECAST_COEF ACTION_FORECAST_K \
          ACTION_FORECAST_GATE ACTION_FORECAST_MAX_LENGTH ACTION_FORECAST_SEQ \
-         GRPO_FILTER_DEGENERATE INFO_INTRINSIC_WEIGHT INFO_GATE_TEMP INFO_KL_BATCH \
-         INFO_MAX_TURNS; do
+         GRPO_FILTER_DEGENERATE; do
   if [ -n "${!v:-}" ]; then EXPORTS="${EXPORTS},${v}=${!v}"; fi
 done
 
