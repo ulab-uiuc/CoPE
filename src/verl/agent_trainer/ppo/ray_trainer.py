@@ -1118,14 +1118,6 @@ class RayPPOTrainer(object):
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
                         batch = batch.union(old_log_prob)
 
-                    # # 在 batch dict 进入 update 之前
-                    # batch.batch['old_log_probs'] = torch.nan_to_num(
-                    #     batch.batch['old_log_probs'],
-                    #     nan=-10.0,
-                    #     posinf=0.0,      # log prob 不应该 > 0，但兜底
-                    #     neginf=-10.0,    # 这是核心防护
-                    # )
-
                     # ---- Temporal Ensembling: score forecast members, assemble q ----
                     # Must run after old_log_prob (the pi^0 component comes from it) and
                     # before any optimizer step (the weights are then the frozen theta-bar).

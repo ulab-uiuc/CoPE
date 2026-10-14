@@ -1,9 +1,13 @@
-"""逐 token 混合（te_mix='token'）的性质测试。
+"""Property tests for per-token mixing (te_mix='token').
 
-性质10: assemble_te_tensors_token 的混合结果与 float64 直算逐位置一致
-性质11: 长度对不上的成员被丢弃并计数，绝不截断错位
-性质12: te_log_q 与 log_prob 同形 -> dp_actor 走逐 token 分支，梯度可回传
-性质13: 无成员 / eta=0 时 te_log_q == old_log_probs -> KL 恒为 0（惰性退化）
+Property 10: assemble_te_tensors_token's mixture matches a direct float64 computation
+             position by position
+Property 11: members whose length does not match are dropped and counted, never
+             truncated into a misalignment
+Property 12: te_log_q has the same shape as log_prob -> dp_actor takes the per-token
+             branch and the gradient flows
+Property 13: with no members, or eta=0, te_log_q == old_log_probs -> the KL is
+             identically 0 (lazy degeneration)
 """
 
 import os
@@ -52,7 +56,7 @@ def test_te_token_mix():
                 for t in range(src + 1, 3):
                     n = spans[(i, t)][1]
                     if bad_len and t == 2:
-                        n += 1                       # 故意长度不匹配
+                        n += 1                       # deliberate length mismatch
                     turns.append(t)
                     rows.append([random.uniform(-4, -0.1) for _ in range(n)])
                 if turns:
@@ -60,12 +64,12 @@ def test_te_token_mix():
                     slot_tok_lp.append(rows)
         return turn_ids, old_lp, index, slot_tok_lp, spans
 
-    # ---------- 性质 10 ----------
+    # ---------- property 10 ----------
     eta = 0.5
     turn_ids, old_lp, index, slot_tok_lp, spans = make_case()
     logq, valid, meta = assemble_te_tensors_token(index, slot_tok_lp, old_lp, turn_ids,
                                                   eta=eta, traj_return=None)
-    # 独立 float64 重算
+    # independent float64 recomputation
     members = {}
     for (i, turns, src), rows in zip(index, slot_tok_lp):
         for t, toks in zip(turns, rows):
@@ -87,24 +91,24 @@ def test_te_token_mix():
             maxerr = max(maxerr, abs(ref - float(logq[i, p0 + j]))); nchk += 1
     assert maxerr < 1e-5, maxerr
     assert nchk > 0
-    print(f"性质10 PASS: {nchk} 个 token 位置，与 float64 直算最大误差 {maxerr:.2e}")
+    print(f"property 10 PASS: {nchk} token positions, max error vs direct float64 {maxerr:.2e}")
 
-    # ---------- 性质 11 ----------
+    # ---------- property 11 ----------
     turn_ids2, old_lp2, index2, slot_tok2, spans2 = make_case(bad_len=True)
     logq2, valid2, meta2 = assemble_te_tensors_token(index2, slot_tok2, old_lp2,
                                                      turn_ids2, eta=0.5)
     assert meta2['te/token_len_mismatch'] > 0, meta2
-    # turn 2 的成员全长度不符 -> 该轮 token 应保持 = old_log_probs
+    # every member of turn 2 has a mismatched length -> those tokens must stay = old_log_probs
     bad = 0
     for i in range(B):
         p0, n = spans2[(i, 2)]
         if not bool(valid2[i, p0]):
             assert torch.allclose(logq2[i, p0:p0 + n], old_lp2[i, p0:p0 + n]); bad += 1
     assert bad > 0
-    print(f"性质11 PASS: {int(meta2['te/token_len_mismatch'])} 个长度不符成员被丢弃，"
-          f"{bad} 条轨迹的该轮回退为 π⁰（未截断错位）")
+    print(f"property 11 PASS: {int(meta2['te/token_len_mismatch'])} length-mismatched members dropped, "
+          f"that turn falls back to pi^0 in {bad} trajectories (no truncated misalignment)")
 
-    # ---------- 性质 12 ----------
+    # ---------- property 12 ----------
     assert logq.shape == old_lp.shape, (logq.shape, old_lp.shape)
     lp = old_lp.clone().requires_grad_(True)
     kl = logq.detach() - lp
@@ -114,14 +118,14 @@ def test_te_token_mix():
     g = lp.grad
     assert torch.isfinite(g).all()
     assert (g[valid] != 0).any() and (g[~valid] == 0).all()
-    print(f"性质12 PASS: te_log_q 与 log_prob 同形 {tuple(logq.shape)}；"
-          f"梯度只落在 {int(valid.sum())} 个被覆盖 token 上，其余恒 0")
+    print(f"property 12 PASS: te_log_q has the same shape as log_prob {tuple(logq.shape)}; "
+          f"the gradient lands only on the {int(valid.sum())} covered tokens, 0 everywhere else")
 
-    # ---------- 性质 13 ----------
+    # ---------- property 13 ----------
     logq0, valid0, _ = assemble_te_tensors_token(index, slot_tok_lp, old_lp, turn_ids, eta=0.0)
-    assert torch.allclose(logq0, old_lp.float()), "eta=0 应完全退化为 π⁰"
+    assert torch.allclose(logq0, old_lp.float()), "eta=0 should degenerate fully to pi^0"
     assert int(valid0.sum()) == 0
     logqE, validE, _ = assemble_te_tensors_token([], [], old_lp, turn_ids, eta=0.5)
     assert torch.allclose(logqE, old_lp.float()) and int(validE.sum()) == 0
-    print("性质13 PASS: eta=0 与无成员两个退化分支都令 te_log_q == π⁰ (KL 恒 0)")
-    print("\n=== 逐 token 混合测试全部通过 ===")
+    print("property 13 PASS: both degenerate branches (eta=0, no members) give te_log_q == pi^0, KL identically 0")
+    print("\n=== per-token mixing tests all passed ===")
