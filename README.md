@@ -8,7 +8,7 @@
 
 [![Python 3.10](https://img.shields.io/badge/python-3.10-blue)](https://www.python.org/downloads/release/python-3100/)
 [![GitHub pull request](https://img.shields.io/badge/PRs-welcome-orange)](https://github.com/ulab-uiuc/CoPE/pulls)
-[![Arxiv](https://img.shields.io/badge/arXiv-Coming%20soon-b31b1b)](https://github.com/ulab-uiuc/CoPE)
+[![arXiv](https://img.shields.io/badge/arXiv-2610.20597-b31b1b)](https://arxiv.org/abs/2610.20597)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 </div>
