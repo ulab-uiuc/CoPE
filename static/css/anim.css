@@ -35,20 +35,18 @@
   display: block;
   width: 100%;
   height: auto;
-  border: 1px solid var(--rule);
-  border-radius: 10px;
-  background: #fff;
+  background: transparent;
   font-family: inherit;
 }
 
 .anim text {
   fill: var(--ink);
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .anim .mut { fill: var(--ink-soft); }
-.anim .ttl { font-size: 14px; font-weight: 700; }
-.anim .small { font-size: 10.5px; }
+.anim .ttl { font-size: 17px; font-weight: 700; }
+.anim .small { font-size: 12.5px; }
 .anim .pp { transform-box: fill-box; transform-origin: center; }
 
 /* scene gating: leave fast, enter after a short gap so scenes never cross-fade */
@@ -127,9 +125,6 @@
   width: 11px;
   height: 11px;
   fill: currentColor;
-  border: 0;
-  background: none;
-  border-radius: 0;
 }
 
 @media (pointer: coarse) {
@@ -142,7 +137,7 @@
 .anim-caps {
   display: grid;
   margin-top: 4px;
-  font-size: 0.88rem;
+  font-size: 0.95rem;
   color: var(--ink-soft);
   line-height: 1.55;
 }
@@ -211,7 +206,7 @@
   stroke-width: 1.4;
 }
 
-.anim-targets .node text { font-size: 11px; font-weight: 600; }
+.anim-targets .node text { font-size: 13px; font-weight: 600; }
 .anim-targets .link { stroke: var(--rule); stroke-width: 1.5; }
 
 .anim-targets[data-scene="0"] .node {
@@ -262,7 +257,7 @@
 }
 .anim-targets[data-scene="3"] .verdict-3 { animation: anim-rise 0.4s both 2.6s; }
 
-.anim-targets .verdict text { font-size: 12.5px; font-weight: 600; }
+.anim-targets .verdict text { font-size: 14.5px; font-weight: 600; }
 .anim-targets .verdict-1 text,
 .anim-targets .verdict-2 text { fill: var(--red); }
 .anim-targets .verdict-3 text { fill: var(--ok); }
@@ -271,7 +266,7 @@
 
 .anim-eff .axis { stroke: var(--ink-soft); stroke-width: 1.2; }
 .anim-eff .grid { stroke: var(--rule); stroke-width: 1; }
-.anim-eff .tick { font-size: 10.5px; fill: var(--ink-soft); }
+.anim-eff .tick { font-size: 12px; fill: var(--ink-soft); }
 .anim-eff .curve-g { fill: none; stroke: #8E7B70; stroke-width: 2; stroke-linejoin: round; }
 .anim-eff .curve-c { fill: none; stroke: var(--terracotta); stroke-width: 2.5; stroke-linejoin: round; }
 .anim-eff .target { stroke: var(--ink-soft); stroke-width: 1; stroke-dasharray: 4 3; }
@@ -293,9 +288,10 @@
 /* ---------- animation 3: the loss, diagonal to band ---------- */
 
 .anim-loss .gl { stroke: var(--rule); stroke-width: 1; }
-.anim-loss .lbl { font-size: 11px; fill: var(--ink-soft); }
-.anim-loss .cell text { font-size: 11px; font-weight: 700; }
+.anim-loss .lbl { font-size: 13px; fill: var(--ink-soft); }
+.anim-loss .cell text { font-size: 13px; font-weight: 700; }
 .anim-loss .cell rect { stroke: #fff; stroke-width: 1; }
+.anim-loss .gl { stroke: var(--rule); }
 .anim-loss .k0 rect { fill: var(--terracotta); }
 .anim-loss .k1 rect { fill: var(--af1); }
 .anim-loss .k2 rect { fill: var(--af2); }
@@ -305,8 +301,8 @@
 .anim-loss .k2 text,
 .anim-loss .k3 text { fill: var(--ink); }
 
-.anim-loss .formula { font-size: 17px; font-weight: 600; }
-.anim-loss .formula .sub { font-size: 10px; font-weight: 600; }
+.anim-loss .formula { font-size: 20px; font-weight: 600; }
+.anim-loss .formula .sub { font-size: 12px; font-weight: 600; }
 .anim-loss .fterm { fill-opacity: 0; transition: fill-opacity 0.35s ease; }
 .anim-loss[data-scene="2"] .fterm,
 .anim-loss[data-scene="3"] .fterm,
