@@ -28,17 +28,23 @@ def anim_flow():
     out.append(f'<text class="ttl sc sc-2" x="20" y="26">{rich("ℒ", ("AF",), ": forecast the next K actions, successful rollouts only", size=10.5)}</text>')
     out.append(f'<text class="ttl sc sc-3" x="20" y="26">{rich("ℒ = ℒ", ("GRPO",), " + λ ℒ", ("AF",), size=10.5)}</text>')
 
+    # shared history: both rollouts have seen o0 a0 o1 a1 o2 when the losses apply
+    hx0, hx1 = xs[0] - 16, xs[4] + 16
+    out.append(f'<rect class="hist-box sc sc-0 sc-1 sc-2 sc-3 fin pp" x="{hx0}" y="{cy_top - 17}" width="{hx1 - hx0}" height="{cy_bot - cy_top + 34}" rx="9"/>')
+    out.append(f'<text class="hist-lbl sc sc-0 sc-1 sc-2 sc-3 fin small mut pp" x="{(hx0 + hx1) / 2}" y="44" text-anchor="middle">{rich("history h", ("2",), "  (seen so far)", size=8.5, dy=2.5)}</text>')
+
     for row, cy in (("top", cy_top), ("bot", cy_bot)):
+        fail = " fl-fail" if row == "top" else ""
         for i in range(11):
-            out.append(f'<line class="link" style="--i:{i}" x1="{xs[i] + 12}" y1="{cy}" x2="{xs[i + 1] - 12}" y2="{cy}"/>')
+            out.append(f'<line class="link{fail}" style="--i:{i}" x1="{xs[i] + 12}" y1="{cy}" x2="{xs[i + 1] - 12}" y2="{cy}"/>')
         for i, (kind, idx) in enumerate(slots):
             x = xs[i]
             label = sub(kind, str(idx), 8.5, 3)
-            extra = ""
+            extra = fail
             if kind == "a" and idx == 2:
-                extra = " fl-a2"
+                extra += " fl-a2"
             elif kind == "a" and idx >= 3:
-                extra = " fl-af" if row == "bot" else " fl-dim"
+                extra += " fl-af" if row == "bot" else " fl-dim"
             kstyle = f";--k:{idx - 3}" if (kind == "a" and idx >= 3) else ""
             if kind == "o":
                 out.append(f'<g class="node o-node pp{extra}" style="--i:{i}{kstyle}"><circle cx="{x}" cy="{cy}" r="11"/>'

@@ -25,13 +25,16 @@
 
 <header class="hero">
   <div class="wrap">
-    <img src="static/images/cope-banner.png"
-         alt="CoPE: Co-Evolving Acting and Forecasting for Language Agents" />
-
-    <h1 class="title">Co-Evolving Acting and Forecasting for Language Agents</h1>
+    <div class="hero-row">
+      <img class="witch" src="static/images/cope-witch.png" alt="" width="416" height="560" />
+      <div class="hero-text">
+        <p class="kicker">CoPE</p>
+        <h1 class="title">Co-Evolving Acting and Forecasting for Language Agents</h1>
+      </div>
+    </div>
 
     <p class="authors">
-      Haofei Yu<sup>1*</sup>,
+      <a href="https://haofeiyu.me">Haofei Yu</a><sup>1*</sup>,
       Yixing Chen<sup>2*</sup>,
       Yining Zhao<sup>1</sup>,
       Xuyan Ye<sup>1</sup>,
@@ -217,29 +220,31 @@
 <text class="ttl sc sc-1" x="20" y="26">ℒ<tspan dy="3.5" font-size="10.5">GRPO</tspan><tspan dy="-3.5">: the current action, all rollouts</tspan></text>
 <text class="ttl sc sc-2" x="20" y="26">ℒ<tspan dy="3.5" font-size="10.5">AF</tspan><tspan dy="-3.5">: forecast the next K actions, successful rollouts only</tspan></text>
 <text class="ttl sc sc-3" x="20" y="26">ℒ = ℒ<tspan dy="3.5" font-size="10.5">GRPO</tspan><tspan dy="-3.5"> + λ ℒ</tspan><tspan dy="3.5" font-size="10.5">AF</tspan></text>
-<line class="link" style="--i:0" x1="130" y1="64" x2="144" y2="64"/>
-<line class="link" style="--i:1" x1="168" y1="64" x2="182" y2="64"/>
-<line class="link" style="--i:2" x1="206" y1="64" x2="220" y2="64"/>
-<line class="link" style="--i:3" x1="244" y1="64" x2="258" y2="64"/>
-<line class="link" style="--i:4" x1="282" y1="64" x2="296" y2="64"/>
-<line class="link" style="--i:5" x1="320" y1="64" x2="334" y2="64"/>
-<line class="link" style="--i:6" x1="358" y1="64" x2="372" y2="64"/>
-<line class="link" style="--i:7" x1="396" y1="64" x2="410" y2="64"/>
-<line class="link" style="--i:8" x1="434" y1="64" x2="448" y2="64"/>
-<line class="link" style="--i:9" x1="472" y1="64" x2="486" y2="64"/>
-<line class="link" style="--i:10" x1="510" y1="64" x2="524" y2="64"/>
-<g class="node o-node pp" style="--i:0"><circle cx="118" cy="64" r="11"/><text x="118" y="68" text-anchor="middle">o<tspan dy="3" font-size="8.5">0</tspan></text></g>
-<g class="node a-node pp" style="--i:1"><rect x="145" y="53" width="22" height="22" rx="5"/><text x="156" y="68" text-anchor="middle">a<tspan dy="3" font-size="8.5">0</tspan></text></g>
-<g class="node o-node pp" style="--i:2"><circle cx="194" cy="64" r="11"/><text x="194" y="68" text-anchor="middle">o<tspan dy="3" font-size="8.5">1</tspan></text></g>
-<g class="node a-node pp" style="--i:3"><rect x="221" y="53" width="22" height="22" rx="5"/><text x="232" y="68" text-anchor="middle">a<tspan dy="3" font-size="8.5">1</tspan></text></g>
-<g class="node o-node pp" style="--i:4"><circle cx="270" cy="64" r="11"/><text x="270" y="68" text-anchor="middle">o<tspan dy="3" font-size="8.5">2</tspan></text></g>
-<g class="node a-node pp fl-a2" style="--i:5"><rect x="297" y="53" width="22" height="22" rx="5"/><text x="308" y="68" text-anchor="middle">a<tspan dy="3" font-size="8.5">2</tspan></text></g>
-<g class="node o-node pp" style="--i:6"><circle cx="346" cy="64" r="11"/><text x="346" y="68" text-anchor="middle">o<tspan dy="3" font-size="8.5">3</tspan></text></g>
-<g class="node a-node pp fl-dim" style="--i:7;--k:0"><rect x="373" y="53" width="22" height="22" rx="5"/><text x="384" y="68" text-anchor="middle">a<tspan dy="3" font-size="8.5">3</tspan></text></g>
-<g class="node o-node pp" style="--i:8"><circle cx="422" cy="64" r="11"/><text x="422" y="68" text-anchor="middle">o<tspan dy="3" font-size="8.5">4</tspan></text></g>
-<g class="node a-node pp fl-dim" style="--i:9;--k:1"><rect x="449" y="53" width="22" height="22" rx="5"/><text x="460" y="68" text-anchor="middle">a<tspan dy="3" font-size="8.5">4</tspan></text></g>
-<g class="node o-node pp" style="--i:10"><circle cx="498" cy="64" r="11"/><text x="498" y="68" text-anchor="middle">o<tspan dy="3" font-size="8.5">5</tspan></text></g>
-<g class="node a-node pp fl-dim" style="--i:11;--k:2"><rect x="525" y="53" width="22" height="22" rx="5"/><text x="536" y="68" text-anchor="middle">a<tspan dy="3" font-size="8.5">5</tspan></text></g>
+<rect class="hist-box sc sc-0 sc-1 sc-2 sc-3 fin pp" x="102" y="47" width="184" height="74" rx="9"/>
+<text class="hist-lbl sc sc-0 sc-1 sc-2 sc-3 fin small mut pp" x="194.0" y="44" text-anchor="middle">history h<tspan dy="2.5" font-size="8.5">2</tspan><tspan dy="-2.5">  (seen so far)</tspan></text>
+<line class="link fl-fail" style="--i:0" x1="130" y1="64" x2="144" y2="64"/>
+<line class="link fl-fail" style="--i:1" x1="168" y1="64" x2="182" y2="64"/>
+<line class="link fl-fail" style="--i:2" x1="206" y1="64" x2="220" y2="64"/>
+<line class="link fl-fail" style="--i:3" x1="244" y1="64" x2="258" y2="64"/>
+<line class="link fl-fail" style="--i:4" x1="282" y1="64" x2="296" y2="64"/>
+<line class="link fl-fail" style="--i:5" x1="320" y1="64" x2="334" y2="64"/>
+<line class="link fl-fail" style="--i:6" x1="358" y1="64" x2="372" y2="64"/>
+<line class="link fl-fail" style="--i:7" x1="396" y1="64" x2="410" y2="64"/>
+<line class="link fl-fail" style="--i:8" x1="434" y1="64" x2="448" y2="64"/>
+<line class="link fl-fail" style="--i:9" x1="472" y1="64" x2="486" y2="64"/>
+<line class="link fl-fail" style="--i:10" x1="510" y1="64" x2="524" y2="64"/>
+<g class="node o-node pp fl-fail" style="--i:0"><circle cx="118" cy="64" r="11"/><text x="118" y="68" text-anchor="middle">o<tspan dy="3" font-size="8.5">0</tspan></text></g>
+<g class="node a-node pp fl-fail" style="--i:1"><rect x="145" y="53" width="22" height="22" rx="5"/><text x="156" y="68" text-anchor="middle">a<tspan dy="3" font-size="8.5">0</tspan></text></g>
+<g class="node o-node pp fl-fail" style="--i:2"><circle cx="194" cy="64" r="11"/><text x="194" y="68" text-anchor="middle">o<tspan dy="3" font-size="8.5">1</tspan></text></g>
+<g class="node a-node pp fl-fail" style="--i:3"><rect x="221" y="53" width="22" height="22" rx="5"/><text x="232" y="68" text-anchor="middle">a<tspan dy="3" font-size="8.5">1</tspan></text></g>
+<g class="node o-node pp fl-fail" style="--i:4"><circle cx="270" cy="64" r="11"/><text x="270" y="68" text-anchor="middle">o<tspan dy="3" font-size="8.5">2</tspan></text></g>
+<g class="node a-node pp fl-fail fl-a2" style="--i:5"><rect x="297" y="53" width="22" height="22" rx="5"/><text x="308" y="68" text-anchor="middle">a<tspan dy="3" font-size="8.5">2</tspan></text></g>
+<g class="node o-node pp fl-fail" style="--i:6"><circle cx="346" cy="64" r="11"/><text x="346" y="68" text-anchor="middle">o<tspan dy="3" font-size="8.5">3</tspan></text></g>
+<g class="node a-node pp fl-fail fl-dim" style="--i:7;--k:0"><rect x="373" y="53" width="22" height="22" rx="5"/><text x="384" y="68" text-anchor="middle">a<tspan dy="3" font-size="8.5">3</tspan></text></g>
+<g class="node o-node pp fl-fail" style="--i:8"><circle cx="422" cy="64" r="11"/><text x="422" y="68" text-anchor="middle">o<tspan dy="3" font-size="8.5">4</tspan></text></g>
+<g class="node a-node pp fl-fail fl-dim" style="--i:9;--k:1"><rect x="449" y="53" width="22" height="22" rx="5"/><text x="460" y="68" text-anchor="middle">a<tspan dy="3" font-size="8.5">4</tspan></text></g>
+<g class="node o-node pp fl-fail" style="--i:10"><circle cx="498" cy="64" r="11"/><text x="498" y="68" text-anchor="middle">o<tspan dy="3" font-size="8.5">5</tspan></text></g>
+<g class="node a-node pp fl-fail fl-dim" style="--i:11;--k:2"><rect x="525" y="53" width="22" height="22" rx="5"/><text x="536" y="68" text-anchor="middle">a<tspan dy="3" font-size="8.5">5</tspan></text></g>
 <line class="link" style="--i:0" x1="130" y1="104" x2="144" y2="104"/>
 <line class="link" style="--i:1" x1="168" y1="104" x2="182" y2="104"/>
 <line class="link" style="--i:2" x1="206" y1="104" x2="220" y2="104"/>
@@ -370,38 +375,30 @@
 
     <h3>Acting helps forecasting via trajectory collection</h3>
     <p>
-      The forecasting targets are not fixed labels. They are the hindsight action chunks of
-      the successful rollouts that the current policy collects. For a fixed rollout policy
-      &pi;, the forecasting loss is minimized by the success-filtered distribution of the
-      policy's own chunks: the chunks &pi; proposes, reweighted by their probability of
-      success, which the success filter enforces by rejection sampling. This keeps the
-      target ahead of the policy that generated it: acting by the single-step marginal of
-      that target succeeds at least as often as acting with &pi;. Both factors depend on
-      the current policy, so forecasting relies on acting to supply successful rollouts,
-      and receives more of them as the policy improves.
+      The forecasting targets come from the policy itself: they are the action chunks of the
+      successful rollouts it collects. For a fixed rollout policy, the forecasting loss is
+      minimized by the policy's own chunks reweighted by their chance of success, which the
+      success filter implements by rejection sampling. That target is always a step ahead of
+      the policy that produced it, and a better policy supplies more successful rollouts, so
+      forecasting gets more and better targets as training goes on.
     </p>
 
     <h3>Forecasting helps acting via implicit temporal ensembling</h3>
     <p>
-      Read along the rows of the grid above, the forecasting loss asks each history
-      <i>h<sub>t</sub></i> to anticipate its chunk <i>a</i><sub>t:t+K</sub>. Read along the
-      columns, every action <i>a<sub>t</sub></i> of a successful rollout also lies inside the
-      chunks of the <i>K</i> preceding histories, so it is supervised from
-      <i>h<sub>t</sub></i>, <i>h</i><sub>t&minus;1</sub>, &hellip;, <i>h</i><sub>t&minus;K</sub>,
-      not only from <i>h<sub>t</sub></i> at the moment it is executed as in GRPO. These
-      forecasts do not conflict with acting: all are conditionals of the same hindsight
-      distribution, so the optimal forecast of <i>a<sub>t</sub></i> issued at
-      <i>h</i><sub>t&minus;k</sub> equals the GRPO target marginalized over the intermediate
-      observations. Because the forecaster shares its parameters with the acting policy,
-      these earlier forecasts are implicitly ensembled into &pi;<sub>&theta;</sub> through
-      the shared representation.
+      Read by column in the grid above, each action of a successful rollout is forecast from
+      the <i>K</i> preceding histories as well as its own, so it receives <i>K</i> + 1
+      supervision signals instead of the single one GRPO gives it. These forecasts agree with
+      acting: they are conditionals of the same hindsight distribution, so the best forecast
+      of <i>a<sub>t</sub></i> from an earlier history equals the GRPO target marginalized over
+      the observations in between. Because forecaster and policy share parameters, those
+      forecasts are folded into &pi;<sub>&theta;</sub>: an ensemble over time that costs
+      nothing at inference.
     </p>
     <p>
-      The paper tests this directly: a separate LoRA forecaster is trained on the policy's
-      own trajectories while the policy receives only the policy gradient, and its forecasts
-      from several horizons are then used to rerank candidate actions. Explicit ensembling at
-      test time improves GRPO and narrows its gap to CoPE, but adds nothing to CoPE, whose
-      policy already contains that information in a single forward pass.
+      The paper checks this with a separate LoRA forecaster trained on the policy's
+      trajectories without passing gradients back. Using its forecasts to rerank candidate
+      actions improves GRPO and narrows its gap to CoPE, but adds nothing to CoPE, whose
+      policy already contains that information.
     </p>
   </div>
 </section>

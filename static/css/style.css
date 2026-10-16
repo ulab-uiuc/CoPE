@@ -38,17 +38,42 @@ body {
 
 .hero { padding: 40px 0 8px; }
 
-.title {
-  text-align: center;
-  font-size: 2rem;
-  font-weight: 700;
-  line-height: 1.25;
-  letter-spacing: -0.01em;
-  color: var(--brown-dark);
-  margin: 26px 0 0;
+.hero-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 36px;
+  margin: 0 auto;
+  max-width: 900px;
 }
 
-.title + .authors { margin-top: 14px; }
+.hero .witch {
+  flex: none;
+  width: 190px;
+  height: auto;
+}
+
+.hero-text { text-align: left; }
+
+.kicker {
+  margin: 0 0 8px;
+  color: var(--terracotta);
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.title {
+  font-size: 2.7rem;
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+  color: var(--brown-dark);
+  margin: 0;
+}
+
+.hero-row + .authors { margin-top: 26px; }
 
 .hero img {
   display: block;
@@ -304,7 +329,10 @@ footer a { color: var(--brown); }
 
 @media (max-width: 640px) {
   body { font-size: 17px; }
-  .title { font-size: 1.45rem; margin-top: 18px; }
+  .hero-row { flex-direction: column; gap: 10px; }
+  .hero-text { text-align: center; }
+  .hero .witch { width: 140px; }
+  .title { font-size: 1.75rem; }
   .hero { padding-top: 20px; }
   section { padding: 32px 0; }
   h2 { font-size: 1.28rem; }
