@@ -210,52 +210,52 @@
 .anim-targets .link { stroke: var(--rule); stroke-width: 1.5; }
 
 .anim-targets[data-scene="0"] .node {
-  animation: anim-pop 0.45s cubic-bezier(0.2, 0.8, 0.3, 1.2) both;
-  animation-delay: calc(var(--i) * 90ms);
+  animation: anim-pop 0.4s cubic-bezier(0.2, 0.8, 0.3, 1.2) both;
+  animation-delay: calc(var(--i) * 50ms);
 }
 
 .anim-targets[data-scene="0"] .link {
-  animation: anim-fade 0.3s both;
-  animation-delay: calc(var(--i) * 90ms + 70ms);
-}
-
-.anim-targets[data-scene="0"] .hist { animation: anim-rise 0.5s both 1.7s; }
-.anim-targets[data-scene="0"] .q    { animation: anim-pop 0.4s both 2.3s; }
-
-.anim-targets[data-scene="1"] .bcast { animation: anim-draw 0.9s ease-out both 0.2s; }
-.anim-targets[data-scene="1"] .vchip {
-  animation: anim-pop 0.35s both;
-  animation-delay: calc(0.55s + var(--j) * 140ms);
-}
-.anim-targets[data-scene="1"] .verdict-1 { animation: anim-rise 0.4s both 1.9s; }
-
-.anim-targets[data-scene="2"] .obs-arrow { animation: anim-draw 0.7s ease-out both 0.2s; }
-.anim-targets[data-scene="2"] .obs-head  { animation: anim-fade 0.2s both 0.85s; }
-.anim-targets[data-scene="2"] .log       { animation: anim-pop 0.45s both 0.9s; }
-.anim-targets[data-scene="2"] .log-line {
   animation: anim-fade 0.25s both;
-  animation-delay: calc(1.25s + var(--i) * 70ms);
+  animation-delay: calc(var(--i) * 50ms + 40ms);
 }
-.anim-targets[data-scene="2"] .log-tag   { animation: anim-rise 0.4s both 1.95s; }
-.anim-targets[data-scene="2"] .verdict-2 { animation: anim-rise 0.4s both 2.4s; }
+
+.anim-targets[data-scene="0"] .hist { animation: anim-rise 0.4s both 1.0s; }
+.anim-targets[data-scene="0"] .q    { animation: anim-pop 0.35s both 1.3s; }
+
+.anim-targets[data-scene="1"] .bcast { animation: anim-draw 0.6s ease-out both 0.1s; }
+.anim-targets[data-scene="1"] .vchip {
+  animation: anim-pop 0.3s both;
+  animation-delay: calc(0.4s + var(--j) * 90ms);
+}
+.anim-targets[data-scene="1"] .verdict-1 { animation: anim-rise 0.35s both 1.2s; }
+
+.anim-targets[data-scene="2"] .obs-arrow { animation: anim-draw 0.5s ease-out both 0.1s; }
+.anim-targets[data-scene="2"] .obs-head  { animation: anim-fade 0.15s both 0.55s; }
+.anim-targets[data-scene="2"] .log       { animation: anim-pop 0.4s both 0.55s; }
+.anim-targets[data-scene="2"] .log-line {
+  animation: anim-fade 0.2s both;
+  animation-delay: calc(0.8s + var(--i) * 50ms);
+}
+.anim-targets[data-scene="2"] .log-tag   { animation: anim-rise 0.35s both 1.2s; }
+.anim-targets[data-scene="2"] .verdict-2 { animation: anim-rise 0.35s both 1.5s; }
 
 .anim-targets[data-scene="3"] .arc {
-  animation: anim-draw 0.55s ease-out both;
-  animation-delay: calc(0.2s + var(--k) * 0.5s);
+  animation: anim-draw 0.4s ease-out both;
+  animation-delay: calc(0.1s + var(--k) * 0.35s);
 }
 .anim-targets[data-scene="3"] .arc-head {
-  animation: anim-fade 0.2s both;
-  animation-delay: calc(0.65s + var(--k) * 0.5s);
+  animation: anim-fade 0.15s both;
+  animation-delay: calc(0.45s + var(--k) * 0.35s);
 }
 .anim-targets[data-scene="3"] .a-hit rect {
-  animation: anim-fill-rect 0.3s both;
-  animation-delay: calc(0.6s + var(--k) * 0.5s);
+  animation: anim-fill-rect 0.25s both;
+  animation-delay: calc(0.4s + var(--k) * 0.35s);
 }
 .anim-targets[data-scene="3"] .a-hit text {
-  animation: anim-fill-text 0.3s both;
-  animation-delay: calc(0.6s + var(--k) * 0.5s);
+  animation: anim-fill-text 0.25s both;
+  animation-delay: calc(0.4s + var(--k) * 0.35s);
 }
-.anim-targets[data-scene="3"] .verdict-3 { animation: anim-rise 0.4s both 2.6s; }
+.anim-targets[data-scene="3"] .verdict-3 { animation: anim-rise 0.35s both 1.7s; }
 
 .anim-targets .verdict text { font-size: 14.5px; font-weight: 600; }
 .anim-targets .verdict-1 text,
@@ -277,13 +277,13 @@
 .anim-eff .brk text { fill: var(--brown-dark); }
 
 .anim-eff .reveal { width: 0; }
-.anim-eff[data-scene="0"] .reveal { animation: anim-reveal 4s linear both; }
+.anim-eff[data-scene="0"] .reveal { animation: anim-reveal 2.6s linear both; }
 .anim-eff[data-scene="1"] .reveal,
 .anim-eff:not([data-scene]) .reveal { width: 302px; }
 
-.anim-eff[data-scene="0"] .mk-c { animation: anim-fade 0.3s both 2s; }
-.anim-eff[data-scene="0"] .mk-g { animation: anim-fade 0.3s both 3.2s; }
-.anim-eff[data-scene="0"] .brk  { animation: anim-rise 0.4s both 3.7s; }
+.anim-eff[data-scene="0"] .mk-c { animation: anim-fade 0.25s both 1.3s; }
+.anim-eff[data-scene="0"] .mk-g { animation: anim-fade 0.25s both 2.08s; }
+.anim-eff[data-scene="0"] .brk  { animation: anim-rise 0.35s both 2.4s; }
 
 /* ---------- animation 3: the loss, diagonal to band ---------- */
 
@@ -310,31 +310,31 @@
 
 .anim-loss .col-hl { fill: none; stroke: var(--amber-deep); stroke-width: 2.5; }
 
-.anim-loss[data-scene="0"] .board { animation: anim-fade 0.6s both; }
-.anim-loss[data-scene="0"] .lbl  { animation: anim-fade 0.4s both; animation-delay: calc(0.3s + var(--i) * 50ms); }
+.anim-loss[data-scene="0"] .board { animation: anim-fade 0.5s both; }
+.anim-loss[data-scene="0"] .lbl  { animation: anim-fade 0.3s both; animation-delay: calc(0.2s + var(--i) * 30ms); }
 
 .anim-loss[data-scene="1"] .k0 {
-  animation: anim-pop 0.35s cubic-bezier(0.2, 0.8, 0.3, 1.2) both;
-  animation-delay: calc(0.2s + var(--i) * 130ms);
+  animation: anim-pop 0.3s cubic-bezier(0.2, 0.8, 0.3, 1.2) both;
+  animation-delay: calc(0.1s + var(--i) * 80ms);
 }
-.anim-loss[data-scene="1"] .tag-grpo { animation: anim-rise 0.4s both 1.3s; }
+.anim-loss[data-scene="1"] .tag-grpo { animation: anim-rise 0.35s both 0.8s; }
 
 .anim-loss[data-scene="2"] .k1 {
-  animation: anim-pop 0.35s both;
-  animation-delay: calc(0.4s + var(--i) * 90ms);
+  animation: anim-pop 0.3s both;
+  animation-delay: calc(0.3s + var(--i) * 60ms);
 }
 .anim-loss[data-scene="2"] .k2 {
-  animation: anim-pop 0.35s both;
-  animation-delay: calc(1.3s + var(--i) * 90ms);
+  animation: anim-pop 0.3s both;
+  animation-delay: calc(0.9s + var(--i) * 60ms);
 }
 .anim-loss[data-scene="2"] .k3 {
-  animation: anim-pop 0.35s both;
-  animation-delay: calc(2.2s + var(--i) * 90ms);
+  animation: anim-pop 0.3s both;
+  animation-delay: calc(1.5s + var(--i) * 60ms);
 }
-.anim-loss[data-scene="2"] .tag-af { animation: anim-rise 0.4s both 0.3s; }
+.anim-loss[data-scene="2"] .tag-af { animation: anim-rise 0.35s both 0.2s; }
 
-.anim-loss[data-scene="3"] .col-hl { animation: anim-pulse 1.6s ease-in-out 0.3s 2 both; }
-.anim-loss[data-scene="3"] .col-note { animation: anim-rise 0.4s both 0.5s; }
+.anim-loss[data-scene="3"] .col-hl { animation: anim-pulse 1.2s ease-in-out 0.2s 2 both; }
+.anim-loss[data-scene="3"] .col-note { animation: anim-rise 0.35s both 0.3s; }
 
 /* ---------- reduced motion ---------- */
 
