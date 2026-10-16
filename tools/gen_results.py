@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the Results charts (HTML/CSS bars + SVG lines) and splice them into index.html."""
+"""Generate the Results charts (SVG column panels + SVG lines) and splice them into index.html."""
 import html as H
 import re
 import os
@@ -11,93 +11,100 @@ os.makedirs(SCRATCH, exist_ok=True)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
-# ----------------------------------------------------------------- data
+# ----------------------------------------------------------------- palette
+# Adjacent-pair order validated with the dataviz validator against the page
+# surface (#FEF6F0); the light blue sits below 3:1 and is relieved by the
+# value label on every column.
+AMBER, VIOLET, GREEN, LIGHTBLUE, BLUE, TERRA = "#B8801E", "#8A5FC2", "#3F8F5A", "#6FA3E8", "#2F6FC4", "#C8663A"
 
-SIM_COLS = ["ALFWorld", "WebShop", "ScienceWorld"]
-SIM = [
-    ("Agentic prompting", [
-        ("Gemini-2.5-flash-lite", [46.0, 6.5, 15.0]),
-        ("GPT-5-mini", [52.0, 7.0, 43.5]),
-        ("GPT-5.5", [93.5, 56.5, 79.0]),
-        ("Qwen2.5-7B", [34.0, 2.5, 2.5]),
-        ("Qwen2.5-7B + Reflexion", [54.0, 4.0, 6.0]),
-    ]),
-    ("RL methods w/o auxiliary loss", [
-        ("RFT", [77.0, 16.0, 4.5]),
-        ("GRPO", [90.5, 64.5, 64.5]),
-        ("GRPO + EMPG", [89.5, 67.5, 46.5]),
-    ]),
-    ("RL methods w/ auxiliary loss", [
-        ("RWML + GRPO", [92.0, 64.0, 65.0]),
-        ("ECHO", [94.5, 71.5, 67.5]),
-        ("CoPE", [95.5, 77.0, 72.5]),
-    ]),
+# ----------------------------------------------------------------- data (RL methods only; prompting rows stay in the table view)
+
+SIM_METHODS = [  # (name, colour), left to right
+    ("ECHO", AMBER), ("RFT", VIOLET), ("RWML + GRPO", GREEN), ("GRPO + EMPG", LIGHTBLUE), ("GRPO", BLUE), ("CoPE", TERRA),
+]
+SIM_PANELS = [  # (benchmark, {method: value})
+    ("ALFWorld", {"ECHO": 94.5, "RFT": 77.0, "RWML + GRPO": 92.0, "GRPO + EMPG": 89.5, "GRPO": 90.5, "CoPE": 95.5}),
+    ("WebShop", {"ECHO": 71.5, "RFT": 16.0, "RWML + GRPO": 64.0, "GRPO + EMPG": 67.5, "GRPO": 64.5, "CoPE": 77.0}),
+    ("ScienceWorld", {"ECHO": 67.5, "RFT": 4.5, "RWML + GRPO": 65.0, "GRPO + EMPG": 46.5, "GRPO": 64.5, "CoPE": 72.5}),
 ]
 
-TAU_COLS = ["Overall"]
-TAU = [
-    ("Agentic prompting", [("Qwen2.5", [11.7]), ("ReAct", [12.3])]),
-    ("Published RL results", [("RAGEN", [16.7]), ("Search-R1", [13.5]), ("UserRL", [12.7]), ("InfoPO", [17.7])]),
-    ("Our controlled runs", [("GRPO (ours)", [27.5]), ("CoPE", [28.7])]),
-]
+TAU_METHODS = [("Search-R1", AMBER), ("UserRL", VIOLET), ("RAGEN", GREEN), ("InfoPO", LIGHTBLUE), ("GRPO (ours)", BLUE), ("CoPE", TERRA)]
+TAU_PANELS = [("Overall", {"Search-R1": 13.5, "UserRL": 12.7, "RAGEN": 16.7, "InfoPO": 17.7, "GRPO (ours)": 27.5, "CoPE": 28.7})]
 
-APP_COLS = ["Normal", "Challenge"]
-APP = [
-    ("Agentic prompting", [("Qwen2.5", [1.2, 0.7]), ("ReAct", [10.7, 2.6])]),
-    ("Published RL results", [("PPO†", [19.1, None]), ("RLOO†", [24.8, None]), ("GiGPO†", [25.7, None]), ("GRPO†", [24.8, None])]),
-    ("Our controlled runs", [("GRPO (ours)", [41.7, 18.7]), ("CoPE", [55.4, 22.5])]),
+APP_METHODS = [("PPO†", AMBER), ("RLOO†", VIOLET), ("GiGPO†", GREEN), ("GRPO†", LIGHTBLUE), ("GRPO (ours)", BLUE), ("CoPE", TERRA)]
+APP_PANELS = [
+    ("Normal", {"PPO†": 19.1, "RLOO†": 24.8, "GiGPO†": 25.7, "GRPO†": 24.8, "GRPO (ours)": 41.7, "CoPE": 55.4}),
+    ("Challenge", {"PPO†": None, "RLOO†": None, "GiGPO†": None, "GRPO†": None, "GRPO (ours)": 18.7, "CoPE": 22.5}),
 ]
 
 ALF_CATS = ["Pick", "Look", "Clean", "Heat", "Cool", "Pick2"]
 ALF_LINES = [
-    ("CoPE", "#C8663A", [100.0, 100.0, 97.3, 96.0, 89.3, 91.1]),
-    ("GRPO", "#2F6FC4", [100.0, 73.7, 94.6, 84.0, 89.3, 88.9]),
-    ("ECHO", "#B8801E", [97.8, 89.5, 91.9, 96.0, 96.4, 93.3]),
-    ("RWML + GRPO", "#3F8F5A", [100.0, 89.5, 89.2, 92.0, 96.4, 84.4]),
+    ("CoPE", TERRA, [100.0, 100.0, 97.3, 96.0, 89.3, 91.1]),
+    ("GRPO", BLUE, [100.0, 73.7, 94.6, 84.0, 89.3, 88.9]),
+    ("ECHO", AMBER, [97.8, 89.5, 91.9, 96.0, 96.4, 93.3]),
+    ("RWML + GRPO", GREEN, [100.0, 89.5, 89.2, 92.0, 96.4, 84.4]),
 ]
 TAU_CATS = ["Telecom", "Retail", "Airline"]
 TAU_LINES = [
-    ("CoPE", "#C8663A", [40.6, 29.4, 16.2]),
-    ("GRPO (ours)", "#2F6FC4", [38.8, 17.5, 26.2]),
-    ("InfoPO", "#B8801E", [18.1, 18.8, 16.3]),
-    ("RAGEN", "#3F8F5A", [17.5, 17.5, 15.0]),
+    ("CoPE", TERRA, [40.6, 29.4, 16.2]),
+    ("GRPO (ours)", BLUE, [38.8, 17.5, 26.2]),
+    ("InfoPO", AMBER, [18.1, 18.8, 16.3]),
+    ("RAGEN", GREEN, [17.5, 17.5, 15.0]),
 ]
 
-REF = {"GRPO", "GRPO (ours)"}
 
+# ----------------------------------------------------------------- column panel
 
-def fmt(v):
-    return "—" if v is None else f"{v:.1f}"
+def columns(title, methods, values, ymax, yticks):
+    W, HH = 300, 236
+    x0, x1, y0, y1 = 36, 290, 40, 196
+    n = len(methods)
+    pitch = (x1 - x0) / n
+    w = min(28, pitch * 0.62)
 
+    def py(v):
+        return y1 - v / ymax * (y1 - y0)
 
-# ----------------------------------------------------------------- bars
-
-def bars(cols, groups, vmax, ticks, caption, table_html, extra_style=""):
-    n = len(cols)
-    out = [f'<figure class="chart chart-bars" style="--cols:{n};--max:{vmax};--ticks:{ticks}{extra_style}">']
-    out.append(f'  <figcaption class="chart-cap">{caption}</figcaption>')
-    out.append('  <div class="bars">')
-    out.append('    <div class="bars-head"><span></span>' + "".join(f"<span>{c}</span>" for c in cols) + "</div>")
-    r = 0
-    for gname, rows in groups:
-        out.append(f'    <div class="bars-group">{gname}</div>')
-        for name, vals in rows:
-            cls = " is-ours" if name == "CoPE" else (" is-ref" if name in REF else "")
-            cells = []
-            for c, v in zip(cols, vals):
-                if v is None:
-                    cells.append(f'<span class="bar is-na" data-col="{c}"><i class="track"></i><b>{fmt(v)}</b></span>')
-                else:
-                    cells.append(f'<span class="bar" data-col="{c}" title="{H.escape(name)} · {c}: {fmt(v)}">'
-                                 f'<i class="track"></i><i class="fill" style="--v:{v}"></i><b>{fmt(v)}</b></span>')
-            out.append(f'    <div class="bars-row{cls}" style="--r:{r}"><span class="bars-label">{name}</span>' + "".join(cells) + "</div>")
-            r += 1
-    axis = "".join(f'<em style="left:{100 * k / ticks:.3f}%">{round(vmax * k / ticks):g}</em>' for k in range(ticks + 1))
-    out.append('    <div class="bars-axis"><span></span>' + "".join(f'<span class="axis">{axis}</span>' for _ in cols) + "</div>")
-    out.append("  </div>")
-    out.append(f'  <details class="chart-table"><summary>Table view</summary>{table_html}</details>')
-    out.append("</figure>")
+    out = [f'<svg viewBox="0 0 {W} {HH}" role="img" aria-label="{H.escape(title)}: ' +
+           H.escape(", ".join(f"{m} {values[m]:.1f}" for m, _ in methods if values[m] is not None)) + '.">']
+    out.append(f'<text class="ttl" x="{x0}" y="22">{title}</text>')
+    for t in yticks:
+        out.append(f'<line class="grid" x1="{x0}" y1="{py(t):.1f}" x2="{x1}" y2="{py(t):.1f}"/>')
+        out.append(f'<text class="tick" x="{x0 - 7}" y="{py(t) + 4:.1f}" text-anchor="end">{t:g}</text>')
+    out.append(f'<line class="axis" x1="{x0}" y1="{y1}" x2="{x1}" y2="{y1}"/>')
+    for i, (name, color) in enumerate(methods):
+        v = values[name]
+        cx = x0 + pitch * (i + 0.5)
+        if v is None:
+            out.append(f'<text class="val na" x="{cx:.1f}" y="{y1 - 8}" text-anchor="middle">—</text>')
+            continue
+        top = py(v)
+        r = min(4, (y1 - top) / 2)
+        d = (f"M{cx - w / 2:.1f},{y1} V{top + r:.1f} a{r},{r} 0 0 1 {r},-{r} "
+             f"H{cx + w / 2 - r:.1f} a{r},{r} 0 0 1 {r},{r} V{y1} z")
+        ours = ' is-ours' if name == "CoPE" else ''
+        out.append(f'<g class="colg{ours}" style="--i:{i}"><title>{H.escape(name)} · {title}: {v:.1f}</title>'
+                   f'<path class="col" d="{d}" fill="{color}"/>'
+                   f'<text class="val" x="{cx:.1f}" y="{top - 7:.1f}" text-anchor="middle">{v:.1f}</text></g>')
+    out.append("</svg>")
     return "\n".join(out)
+
+
+def legend(methods, kind="sq"):
+    return f'<div class="legend legend-{kind}">' + "".join(
+        f'<span><i style="--c:{c}"></i>{n}</span>' for n, c in methods) + "</div>"
+
+
+def col_figure(cls, caption, methods, panels, ymax, yticks, table_html):
+    panel_html = "\n".join(f'    <div class="chart-panel">\n{columns(t, methods, v, ymax, yticks)}\n    </div>' for t, v in panels)
+    return f'''<figure class="chart chart-cols {cls}">
+  <figcaption class="chart-cap">{caption}</figcaption>
+  {legend(methods)}
+  <div class="chart-row chart-row-{len(panels)}">
+{panel_html}
+  </div>
+  <details class="chart-table"><summary>Table view (all methods)</summary>{table_html}</details>
+</figure>'''
 
 
 # ----------------------------------------------------------------- lines
@@ -120,14 +127,12 @@ def lines(title, cats, series, ymin, ymax, yticks, unit="success rate (%)"):
         out.append(f'<text class="tick" x="{x:.1f}" y="{y1 + 20}" text-anchor="middle">{c}</text>')
     out.append(f'<text class="small mut" x="{x1}" y="24" text-anchor="end">{unit}</text>')
 
-    # end labels with collision resolution (min 14px apart), leaders when moved
     ends = sorted([(py(vals[-1]), i) for i, (_, _, vals) in enumerate(series)])
     placed = []
     for y, i in ends:
         if placed and y - placed[-1][0] < 14:
             y = placed[-1][0] + 14
         placed.append((y, i))
-    # keep inside plot
     shift = max(0, placed[-1][0] - (y1 + 4))
     placed = [(y - shift, i) for y, i in placed]
     label_y = {i: y for y, i in placed}
@@ -146,9 +151,7 @@ def lines(title, cats, series, ymin, ymax, yticks, unit="success rate (%)"):
         out.append(f'<text class="end" x="{x1 + 18}" y="{ly + 4:.1f}">{name}</text>')
         out.append("</g>")
     out.append("</svg>")
-    legend = '<div class="legend">' + "".join(
-        f'<span><i style="--c:{c}"></i>{n}</span>' for n, c, _ in series) + "</div>"
-    return legend + "\n" + "\n".join(out)
+    return legend([(n, c) for n, c, _ in series], "ln") + "\n" + "\n".join(out)
 
 
 def line_table(cats, series, label):
@@ -163,7 +166,6 @@ def main():
     path = f"{WT}/index.html"
     s = open(path, encoding="utf-8").read()
 
-    # Pull the original tables out of the page (first run) or out of the stored block (re-runs)
     m = re.search(r'<template id="results-tables">(.*?)</template>', s, re.S)
     if m:
         tables = m.group(1)
@@ -176,21 +178,21 @@ def main():
     t_sim, t_tau, t_app = parts
     tables = "\n".join(parts)
 
-    sim_chart = bars(SIM_COLS, SIM, 100, 4,
-                     "<b>Simulated agent tasks.</b> Success rate (%) on ALFWorld (all subtasks), WebShop and ScienceWorld. All RL methods use Qwen2.5-7B-Instruct.",
-                     t_sim)
-    tau_chart = bars(TAU_COLS, TAU, 50, 2,
-                     "<b>&tau;<sup>2</sup>-bench.</b> Overall Avg@4 success rate (%) with Qwen2.5-7B-Instruct.",
-                     t_tau, extra_style=";--label:120px")
-    app_chart = bars(APP_COLS, APP, 60, 3,
-                     "<b>AppWorld.</b> Success rate (%) with Qwen2.5-14B-Instruct. <sup>&dagger;</sup> as reported in G2PO.",
-                     t_app, extra_style=";--label:120px")
+    sim_chart = col_figure("chart-sim",
+                           "<b>Simulated agent tasks.</b> Success rate (%) of the RL methods on ALFWorld (all subtasks), WebShop and ScienceWorld, all with Qwen2.5-7B-Instruct. Prompting baselines are in the table view.",
+                           SIM_METHODS, SIM_PANELS, 100, [0, 25, 50, 75, 100], t_sim)
+    tau_chart = col_figure("chart-tau",
+                           "<b>&tau;<sup>2</sup>-bench.</b> Overall Avg@4 success rate (%), Qwen2.5-7B-Instruct.",
+                           TAU_METHODS, TAU_PANELS, 50, [0, 25, 50], t_tau)
+    app_chart = col_figure("chart-app",
+                           "<b>AppWorld.</b> Success rate (%), Qwen2.5-14B-Instruct. <sup>&dagger;</sup> as reported in G2PO, which did not report the Challenge split.",
+                           APP_METHODS, APP_PANELS, 60, [0, 20, 40, 60], t_app)
 
     alf_lines = lines("ALFWorld subtasks", ALF_CATS, ALF_LINES, 60, 100, [60, 70, 80, 90, 100])
     tau_lines = lines("τ²-bench domains", TAU_CATS, TAU_LINES, 0, 45, [0, 15, 30, 45])
     lines_fig = f'''<figure class="chart chart-lines">
   <figcaption class="chart-cap"><b>Subtasks and domains.</b> Per-subtask success rate (%) for the RL methods with auxiliary targets on ALFWorld, and per-domain success rate on &tau;<sup>2</sup>-bench.</figcaption>
-  <div class="chart-row">
+  <div class="chart-row chart-row-2">
     <div class="chart-panel">
 {alf_lines}
     </div>
@@ -217,12 +219,6 @@ def main():
 {tau_chart}
 {app_chart}
     </div>
-
-    <h3>Where the gains come from</h3>
-
-{lines_fig}
-
-{note}
     </div>
     <template id="results-tables">{tables}</template>'''
 
