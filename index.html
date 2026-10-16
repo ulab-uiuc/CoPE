@@ -368,24 +368,40 @@
       </figcaption>
     </figure>
 
-    <h3>Acting helps forecasting</h3>
+    <h3>Acting helps forecasting via trajectory collection</h3>
     <p>
-      GRPO supervises each history <i>h<sub>t</sub></i> with its single-step marginal only —
-      it never asks the representation at <i>h<sub>t</sub></i> to anticipate the actions that
-      actually realize success. CoPE adds an action forecasting loss that fits the full
-      horizon-<i>K</i> chunk, read directly off successful on-policy rollouts. No world model
-      has to be learned to simulate future states: intermediate observations are marginalized
-      out by the rollouts themselves.
+      The forecasting targets are not fixed labels. They are the hindsight action chunks of
+      the successful rollouts that the current policy collects. For a fixed rollout policy
+      &pi;, the forecasting loss is minimized by the success-filtered distribution of the
+      policy's own chunks: the chunks &pi; proposes, reweighted by their probability of
+      success, which the success filter enforces by rejection sampling. This keeps the
+      target ahead of the policy that generated it: acting by the single-step marginal of
+      that target succeeds at least as often as acting with &pi;. Both factors depend on
+      the current policy, so forecasting relies on acting to supply successful rollouts,
+      and receives more of them as the policy improves.
     </p>
 
-    <h3>Forecasting helps acting</h3>
+    <h3>Forecasting helps acting via implicit temporal ensembling</h3>
     <p>
-      Because the forecaster shares parameters with the acting policy, each action ends up
-      supervised from several preceding histories at once — a temporal ensemble the backbone
-      absorbs during training. The paper isolates this direction by training a separate LoRA
-      forecaster that receives no policy gradient: explicit ensembling at test time improves
-      GRPO and narrows its gap to CoPE, but adds nothing to CoPE, which already contains the
-      information in a single forward pass.
+      Read along the rows of the grid above, the forecasting loss asks each history
+      <i>h<sub>t</sub></i> to anticipate its chunk <i>a</i><sub>t:t+K</sub>. Read along the
+      columns, every action <i>a<sub>t</sub></i> of a successful rollout also lies inside the
+      chunks of the <i>K</i> preceding histories, so it is supervised from
+      <i>h<sub>t</sub></i>, <i>h</i><sub>t&minus;1</sub>, &hellip;, <i>h</i><sub>t&minus;K</sub>,
+      not only from <i>h<sub>t</sub></i> at the moment it is executed as in GRPO. These
+      forecasts do not conflict with acting: all are conditionals of the same hindsight
+      distribution, so the optimal forecast of <i>a<sub>t</sub></i> issued at
+      <i>h</i><sub>t&minus;k</sub> equals the GRPO target marginalized over the intermediate
+      observations. Because the forecaster shares its parameters with the acting policy,
+      these earlier forecasts are implicitly ensembled into &pi;<sub>&theta;</sub> through
+      the shared representation.
+    </p>
+    <p>
+      The paper tests this directly: a separate LoRA forecaster is trained on the policy's
+      own trajectories while the policy receives only the policy gradient, and its forecasts
+      from several horizons are then used to rerank candidate actions. Explicit ensembling at
+      test time improves GRPO and narrows its gap to CoPE, but adds nothing to CoPE, whose
+      policy already contains that information in a single forward pass.
     </p>
   </div>
 </section>
