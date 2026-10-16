@@ -98,6 +98,10 @@ TRAIN_FILE="${TRAIN_FILE:-${ROOT}/data/tau2_retail-airline-telecom_train.json}"
 # ---- cluster -------------------------------------------------------------------------
 MODEL_PATH="${MODEL_PATH:-Qwen/Qwen2.5-7B-Instruct}"
 USERSIM_MODE="${USERSIM_MODE:-local}"
+# Only meaningful under USERSIM_MODE=hosted. Forwarded because sbatch_tau2_grpo.sh
+# derives the credential file from this prefix: without it, asking for an Anthropic
+# customer here silently ran gpt-4o-mini instead.
+USERSIM_LLM="${USERSIM_LLM:-openai/gpt-4o-mini}"
 USERSIM_TP="${USERSIM_TP:-1}"
 NUM_TRAIN_GPUS="${NUM_TRAIN_GPUS:-7}"
 GPUS="${GPUS:-8}"
@@ -116,6 +120,7 @@ echo "per-rank batch: $(( TRAIN_BATCH_SIZE * ROLLOUT_N / NUM_TRAIN_GPUS ))" \
      "(20 is the value validated on 40GB cards)"
 
 EXPORTS="ALL,TAU2_ENV=${TAU2_ENV},USERSIM_MODE=${USERSIM_MODE},USERSIM_TP=${USERSIM_TP}"
+EXPORTS="${EXPORTS},USERSIM_LLM=${USERSIM_LLM}"
 EXPORTS="${EXPORTS},NUM_TRAIN_GPUS=${NUM_TRAIN_GPUS},TAU2_DOMAIN=${TAU2_DOMAIN}"
 EXPORTS="${EXPORTS},TAU2_TASK_SPLIT=${TAU2_TASK_SPLIT},TAU2_REWARD_SHAPE=${TAU2_REWARD_SHAPE}"
 EXPORTS="${EXPORTS},TAU2_REWARD_BASIS=${TAU2_REWARD_BASIS},TAU2_PROMPT_VARIANT=${TAU2_PROMPT_VARIANT}"
