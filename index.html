@@ -66,20 +66,16 @@
   <div class="wrap">
     <h2>Abstract</h2>
     <p class="lede">
-      Training language agents is bottlenecked by the cost of long-horizon rollouts, yet
-      standard agentic reinforcement learning (RL) learns only from a terminal scalar reward
-      and leaves the intermediate steps unused. Prior work adds <i>value targets</i> or
-      <i>observation targets</i> for those steps, but value targets all derive from the same
-      scalar, and observation targets such as web pages and terminal logs are long, noisy,
-      and reach only one step ahead. <b>CoPE</b> adds a third kind of target:
-      <i>multi-step action targets</i>. On successful on-policy trajectories, the policy
-      backbone is trained to forecast the action sequence that follows each history, so
-      acting and forecasting co-evolve in one model and each action is supervised from
-      several preceding histories at once. At inference the policy still acts one step at a
-      time, with no overhead. Across ALFWorld, ScienceWorld, WebShop, &tau;<sup>2</sup>-bench,
-      and AppWorld, CoPE outperforms GRPO and RL baselines with predictive auxiliary targets,
-      reaches up to 2.0&times; the sample efficiency of GRPO on ScienceWorld, and needs no
-      extra models, pretraining stages, or inference-time cost.
+      Agentic reinforcement learning learns only from a terminal scalar reward, so most of a
+      long rollout goes unused. Per-step <i>value targets</i> all derive from that one scalar,
+      and next-<i>observation targets</i> are long, noisy, and reach only one step ahead.
+      <b>CoPE</b> adds <i>multi-step action targets</i>: on successful trajectories, the policy
+      backbone is also trained to forecast the actions that follow each history, so acting
+      and forecasting co-evolve in one model. At inference it still acts one step at a time,
+      with no overhead. Across ALFWorld, ScienceWorld, WebShop, &tau;<sup>2</sup>-bench, and
+      AppWorld, CoPE outperforms GRPO and predictive-auxiliary baselines with up to
+      2.0&times; the sample efficiency, using no extra models, pretraining stages, or
+      inference-time cost.
     </p>
 
     <div class="cards">
