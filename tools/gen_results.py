@@ -11,12 +11,20 @@ os.makedirs(SCRATCH, exist_ok=True)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
-# ----------------------------------------------------------------- palette (emphasis form)
-TERRA, GRPO_GREY, PRIOR_GREY = "#C8663A", "#8E7B70", "#CDBFB4"
+# ----------------------------------------------------------------- palette
+# One hue per benchmark, three ordinal steps (prior method, GRPO, CoPE darkest).
+# Each ramp passes the dataviz validator's --ordinal checks on the page surface.
+RAMPS = {
+    "ALFWorld": ("#DE9C7E", "#C46B42", "#8F3C1D"),
+    "WebShop": ("#D4A854", "#B8862A", "#7D5609"),
+    "ScienceWorld": ("#7FBB95", "#4F9A6C", "#276040"),
+    "τ²-bench": ("#86ABDB", "#5484C4", "#265391"),
+    "AppWorld": ("#B9A2D8", "#8A68B8", "#523580"),
+}
 
 # ----------------------------------------------------------------- data
 # One panel per benchmark: strongest prior RL method, GRPO in our setup, CoPE.
-# (name, value) triples; the full tables stay in the table view.
+# The full tables stay in the table view.
 MAIN = [
     ("ALFWorld", "success rate (%)", 100, [0, 50, 100], [("ECHO", 94.5), ("GRPO", 90.5), ("CoPE", 95.5)]),
     ("WebShop", "success rate (%)", 100, [0, 50, 100], [("ECHO", 71.5), ("GRPO", 64.5), ("CoPE", 77.0)]),
@@ -29,19 +37,20 @@ MAIN = [
 # ----------------------------------------------------------------- benchmark panel
 
 def panel(title, unit, ymax, yticks, bars):
-    W, HH = 200, 236
-    x0, x1, y0, y1 = 34, 192, 52, 186
+    W, HH = 200, 196
+    x0, x1, y0, y1 = 34, 192, 46, 152
     n = len(bars)
     pitch = (x1 - x0) / n
-    w = 30
+    w = 26
+    ramp = RAMPS[title]
 
     def py(v):
         return y1 - v / ymax * (y1 - y0)
 
     out = [f'<svg viewBox="0 0 {W} {HH}" role="img" aria-label="{H.escape(title)}, {H.escape(unit)}: ' +
            H.escape(", ".join(f"{m} {v:.1f}" for m, v in bars)) + '.">']
-    out.append(f'<text class="ttl" x="{x0}" y="20">{title}</text>')
-    out.append(f'<text class="small mut" x="{x0}" y="36">{unit}</text>')
+    out.append(f'<text class="ttl" x="{x0}" y="18">{title}</text>')
+    out.append(f'<text class="small mut" x="{x0}" y="32">{unit}</text>')
     for t in yticks:
         out.append(f'<line class="grid" x1="{x0}" y1="{py(t):.1f}" x2="{x1}" y2="{py(t):.1f}"/>')
         out.append(f'<text class="tick" x="{x0 - 6}" y="{py(t) + 4:.1f}" text-anchor="end">{t:g}</text>')
@@ -52,16 +61,14 @@ def panel(title, unit, ymax, yticks, bars):
         r = min(4, (y1 - top) / 2)
         d = (f"M{cx - w / 2:.1f},{y1} V{top + r:.1f} a{r},{r} 0 0 1 {r},-{r} "
              f"H{cx + w / 2 - r:.1f} a{r},{r} 0 0 1 {r},{r} V{y1} z")
-        if name == "CoPE":
-            color, cls = TERRA, "colg is-ours"
-        elif name == "GRPO":
-            color, cls = GRPO_GREY, "colg is-ref"
-        else:
-            color, cls = PRIOR_GREY, "colg"
+        color = ramp[i]
+        ours = name == "CoPE"
+        cls = "colg is-ours" if ours else "colg"
+        emph = f' fill="{ramp[2]}"' if ours else ""
         out.append(f'<g class="{cls}" style="--i:{i}"><title>{H.escape(name)} · {H.escape(title)}: {v:.1f}</title>'
                    f'<path class="col" d="{d}" fill="{color}"/>'
-                   f'<text class="val" x="{cx:.1f}" y="{top - 7:.1f}" text-anchor="middle">{v:.1f}</text>'
-                   f'<text class="xlab" x="{cx:.1f}" y="{y1 + 18}" text-anchor="middle">{name}</text></g>')
+                   f'<text class="val" x="{cx:.1f}" y="{top - 6:.1f}" text-anchor="middle"{emph}>{v:.1f}</text>'
+                   f'<text class="xlab" x="{cx:.1f}" y="{y1 + 16}" text-anchor="middle"{emph}>{name}</text></g>')
     out.append("</svg>")
     return "\n".join(out)
 

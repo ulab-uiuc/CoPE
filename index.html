@@ -415,83 +415,83 @@
   <figcaption class="chart-cap"><b>Main results.</b> CoPE against GRPO trained in the same setup, and the strongest prior RL method on each benchmark (ECHO on the simulated tasks; InfoPO on &tau;<sup>2</sup>-bench and GiGPO on AppWorld, as published). ALFWorld counts success over all subtasks; AppWorld is the Normal split with Qwen2.5-14B-Instruct, every other benchmark uses Qwen2.5-7B-Instruct. Prompting baselines, the remaining RL methods and the AppWorld Challenge split are in the table view.</figcaption>
   <div class="chart-row chart-row-5">
     <div class="chart-panel">
-<svg viewBox="0 0 200 236" role="img" aria-label="ALFWorld, success rate (%): ECHO 94.5, GRPO 90.5, CoPE 95.5.">
-<text class="ttl" x="34" y="20">ALFWorld</text>
-<text class="small mut" x="34" y="36">success rate (%)</text>
-<line class="grid" x1="34" y1="186.0" x2="192" y2="186.0"/>
-<text class="tick" x="28" y="190.0" text-anchor="end">0</text>
-<line class="grid" x1="34" y1="119.0" x2="192" y2="119.0"/>
-<text class="tick" x="28" y="123.0" text-anchor="end">50</text>
-<line class="grid" x1="34" y1="52.0" x2="192" y2="52.0"/>
-<text class="tick" x="28" y="56.0" text-anchor="end">100</text>
-<line class="axis" x1="34" y1="186" x2="192" y2="186"/>
-<g class="colg" style="--i:0"><title>ECHO · ALFWorld: 94.5</title><path class="col" d="M45.3,186 V63.4 a4,4 0 0 1 4,-4 H71.3 a4,4 0 0 1 4,4 V186 z" fill="#CDBFB4"/><text class="val" x="60.3" y="52.4" text-anchor="middle">94.5</text><text class="xlab" x="60.3" y="204" text-anchor="middle">ECHO</text></g>
-<g class="colg is-ref" style="--i:1"><title>GRPO · ALFWorld: 90.5</title><path class="col" d="M98.0,186 V68.7 a4,4 0 0 1 4,-4 H124.0 a4,4 0 0 1 4,4 V186 z" fill="#8E7B70"/><text class="val" x="113.0" y="57.7" text-anchor="middle">90.5</text><text class="xlab" x="113.0" y="204" text-anchor="middle">GRPO</text></g>
-<g class="colg is-ours" style="--i:2"><title>CoPE · ALFWorld: 95.5</title><path class="col" d="M150.7,186 V62.0 a4,4 0 0 1 4,-4 H176.7 a4,4 0 0 1 4,4 V186 z" fill="#C8663A"/><text class="val" x="165.7" y="51.0" text-anchor="middle">95.5</text><text class="xlab" x="165.7" y="204" text-anchor="middle">CoPE</text></g>
+<svg viewBox="0 0 200 196" role="img" aria-label="ALFWorld, success rate (%): ECHO 94.5, GRPO 90.5, CoPE 95.5.">
+<text class="ttl" x="34" y="18">ALFWorld</text>
+<text class="small mut" x="34" y="32">success rate (%)</text>
+<line class="grid" x1="34" y1="152.0" x2="192" y2="152.0"/>
+<text class="tick" x="28" y="156.0" text-anchor="end">0</text>
+<line class="grid" x1="34" y1="99.0" x2="192" y2="99.0"/>
+<text class="tick" x="28" y="103.0" text-anchor="end">50</text>
+<line class="grid" x1="34" y1="46.0" x2="192" y2="46.0"/>
+<text class="tick" x="28" y="50.0" text-anchor="end">100</text>
+<line class="axis" x1="34" y1="152" x2="192" y2="152"/>
+<g class="colg" style="--i:0"><title>ECHO · ALFWorld: 94.5</title><path class="col" d="M47.3,152 V55.8 a4,4 0 0 1 4,-4 H69.3 a4,4 0 0 1 4,4 V152 z" fill="#DE9C7E"/><text class="val" x="60.3" y="45.8" text-anchor="middle">94.5</text><text class="xlab" x="60.3" y="168" text-anchor="middle">ECHO</text></g>
+<g class="colg" style="--i:1"><title>GRPO · ALFWorld: 90.5</title><path class="col" d="M100.0,152 V60.1 a4,4 0 0 1 4,-4 H122.0 a4,4 0 0 1 4,4 V152 z" fill="#C46B42"/><text class="val" x="113.0" y="50.1" text-anchor="middle">90.5</text><text class="xlab" x="113.0" y="168" text-anchor="middle">GRPO</text></g>
+<g class="colg is-ours" style="--i:2"><title>CoPE · ALFWorld: 95.5</title><path class="col" d="M152.7,152 V54.8 a4,4 0 0 1 4,-4 H174.7 a4,4 0 0 1 4,4 V152 z" fill="#8F3C1D"/><text class="val" x="165.7" y="44.8" text-anchor="middle" fill="#8F3C1D">95.5</text><text class="xlab" x="165.7" y="168" text-anchor="middle" fill="#8F3C1D">CoPE</text></g>
 </svg>
     </div>
     <div class="chart-panel">
-<svg viewBox="0 0 200 236" role="img" aria-label="WebShop, success rate (%): ECHO 71.5, GRPO 64.5, CoPE 77.0.">
-<text class="ttl" x="34" y="20">WebShop</text>
-<text class="small mut" x="34" y="36">success rate (%)</text>
-<line class="grid" x1="34" y1="186.0" x2="192" y2="186.0"/>
-<text class="tick" x="28" y="190.0" text-anchor="end">0</text>
-<line class="grid" x1="34" y1="119.0" x2="192" y2="119.0"/>
-<text class="tick" x="28" y="123.0" text-anchor="end">50</text>
-<line class="grid" x1="34" y1="52.0" x2="192" y2="52.0"/>
-<text class="tick" x="28" y="56.0" text-anchor="end">100</text>
-<line class="axis" x1="34" y1="186" x2="192" y2="186"/>
-<g class="colg" style="--i:0"><title>ECHO · WebShop: 71.5</title><path class="col" d="M45.3,186 V94.2 a4,4 0 0 1 4,-4 H71.3 a4,4 0 0 1 4,4 V186 z" fill="#CDBFB4"/><text class="val" x="60.3" y="83.2" text-anchor="middle">71.5</text><text class="xlab" x="60.3" y="204" text-anchor="middle">ECHO</text></g>
-<g class="colg is-ref" style="--i:1"><title>GRPO · WebShop: 64.5</title><path class="col" d="M98.0,186 V103.6 a4,4 0 0 1 4,-4 H124.0 a4,4 0 0 1 4,4 V186 z" fill="#8E7B70"/><text class="val" x="113.0" y="92.6" text-anchor="middle">64.5</text><text class="xlab" x="113.0" y="204" text-anchor="middle">GRPO</text></g>
-<g class="colg is-ours" style="--i:2"><title>CoPE · WebShop: 77.0</title><path class="col" d="M150.7,186 V86.8 a4,4 0 0 1 4,-4 H176.7 a4,4 0 0 1 4,4 V186 z" fill="#C8663A"/><text class="val" x="165.7" y="75.8" text-anchor="middle">77.0</text><text class="xlab" x="165.7" y="204" text-anchor="middle">CoPE</text></g>
+<svg viewBox="0 0 200 196" role="img" aria-label="WebShop, success rate (%): ECHO 71.5, GRPO 64.5, CoPE 77.0.">
+<text class="ttl" x="34" y="18">WebShop</text>
+<text class="small mut" x="34" y="32">success rate (%)</text>
+<line class="grid" x1="34" y1="152.0" x2="192" y2="152.0"/>
+<text class="tick" x="28" y="156.0" text-anchor="end">0</text>
+<line class="grid" x1="34" y1="99.0" x2="192" y2="99.0"/>
+<text class="tick" x="28" y="103.0" text-anchor="end">50</text>
+<line class="grid" x1="34" y1="46.0" x2="192" y2="46.0"/>
+<text class="tick" x="28" y="50.0" text-anchor="end">100</text>
+<line class="axis" x1="34" y1="152" x2="192" y2="152"/>
+<g class="colg" style="--i:0"><title>ECHO · WebShop: 71.5</title><path class="col" d="M47.3,152 V80.2 a4,4 0 0 1 4,-4 H69.3 a4,4 0 0 1 4,4 V152 z" fill="#D4A854"/><text class="val" x="60.3" y="70.2" text-anchor="middle">71.5</text><text class="xlab" x="60.3" y="168" text-anchor="middle">ECHO</text></g>
+<g class="colg" style="--i:1"><title>GRPO · WebShop: 64.5</title><path class="col" d="M100.0,152 V87.6 a4,4 0 0 1 4,-4 H122.0 a4,4 0 0 1 4,4 V152 z" fill="#B8862A"/><text class="val" x="113.0" y="77.6" text-anchor="middle">64.5</text><text class="xlab" x="113.0" y="168" text-anchor="middle">GRPO</text></g>
+<g class="colg is-ours" style="--i:2"><title>CoPE · WebShop: 77.0</title><path class="col" d="M152.7,152 V74.4 a4,4 0 0 1 4,-4 H174.7 a4,4 0 0 1 4,4 V152 z" fill="#7D5609"/><text class="val" x="165.7" y="64.4" text-anchor="middle" fill="#7D5609">77.0</text><text class="xlab" x="165.7" y="168" text-anchor="middle" fill="#7D5609">CoPE</text></g>
 </svg>
     </div>
     <div class="chart-panel">
-<svg viewBox="0 0 200 236" role="img" aria-label="ScienceWorld, success rate (%): ECHO 67.5, GRPO 64.5, CoPE 72.5.">
-<text class="ttl" x="34" y="20">ScienceWorld</text>
-<text class="small mut" x="34" y="36">success rate (%)</text>
-<line class="grid" x1="34" y1="186.0" x2="192" y2="186.0"/>
-<text class="tick" x="28" y="190.0" text-anchor="end">0</text>
-<line class="grid" x1="34" y1="119.0" x2="192" y2="119.0"/>
-<text class="tick" x="28" y="123.0" text-anchor="end">50</text>
-<line class="grid" x1="34" y1="52.0" x2="192" y2="52.0"/>
-<text class="tick" x="28" y="56.0" text-anchor="end">100</text>
-<line class="axis" x1="34" y1="186" x2="192" y2="186"/>
-<g class="colg" style="--i:0"><title>ECHO · ScienceWorld: 67.5</title><path class="col" d="M45.3,186 V99.5 a4,4 0 0 1 4,-4 H71.3 a4,4 0 0 1 4,4 V186 z" fill="#CDBFB4"/><text class="val" x="60.3" y="88.5" text-anchor="middle">67.5</text><text class="xlab" x="60.3" y="204" text-anchor="middle">ECHO</text></g>
-<g class="colg is-ref" style="--i:1"><title>GRPO · ScienceWorld: 64.5</title><path class="col" d="M98.0,186 V103.6 a4,4 0 0 1 4,-4 H124.0 a4,4 0 0 1 4,4 V186 z" fill="#8E7B70"/><text class="val" x="113.0" y="92.6" text-anchor="middle">64.5</text><text class="xlab" x="113.0" y="204" text-anchor="middle">GRPO</text></g>
-<g class="colg is-ours" style="--i:2"><title>CoPE · ScienceWorld: 72.5</title><path class="col" d="M150.7,186 V92.9 a4,4 0 0 1 4,-4 H176.7 a4,4 0 0 1 4,4 V186 z" fill="#C8663A"/><text class="val" x="165.7" y="81.9" text-anchor="middle">72.5</text><text class="xlab" x="165.7" y="204" text-anchor="middle">CoPE</text></g>
+<svg viewBox="0 0 200 196" role="img" aria-label="ScienceWorld, success rate (%): ECHO 67.5, GRPO 64.5, CoPE 72.5.">
+<text class="ttl" x="34" y="18">ScienceWorld</text>
+<text class="small mut" x="34" y="32">success rate (%)</text>
+<line class="grid" x1="34" y1="152.0" x2="192" y2="152.0"/>
+<text class="tick" x="28" y="156.0" text-anchor="end">0</text>
+<line class="grid" x1="34" y1="99.0" x2="192" y2="99.0"/>
+<text class="tick" x="28" y="103.0" text-anchor="end">50</text>
+<line class="grid" x1="34" y1="46.0" x2="192" y2="46.0"/>
+<text class="tick" x="28" y="50.0" text-anchor="end">100</text>
+<line class="axis" x1="34" y1="152" x2="192" y2="152"/>
+<g class="colg" style="--i:0"><title>ECHO · ScienceWorld: 67.5</title><path class="col" d="M47.3,152 V84.4 a4,4 0 0 1 4,-4 H69.3 a4,4 0 0 1 4,4 V152 z" fill="#7FBB95"/><text class="val" x="60.3" y="74.4" text-anchor="middle">67.5</text><text class="xlab" x="60.3" y="168" text-anchor="middle">ECHO</text></g>
+<g class="colg" style="--i:1"><title>GRPO · ScienceWorld: 64.5</title><path class="col" d="M100.0,152 V87.6 a4,4 0 0 1 4,-4 H122.0 a4,4 0 0 1 4,4 V152 z" fill="#4F9A6C"/><text class="val" x="113.0" y="77.6" text-anchor="middle">64.5</text><text class="xlab" x="113.0" y="168" text-anchor="middle">GRPO</text></g>
+<g class="colg is-ours" style="--i:2"><title>CoPE · ScienceWorld: 72.5</title><path class="col" d="M152.7,152 V79.2 a4,4 0 0 1 4,-4 H174.7 a4,4 0 0 1 4,4 V152 z" fill="#276040"/><text class="val" x="165.7" y="69.2" text-anchor="middle" fill="#276040">72.5</text><text class="xlab" x="165.7" y="168" text-anchor="middle" fill="#276040">CoPE</text></g>
 </svg>
     </div>
     <div class="chart-panel">
-<svg viewBox="0 0 200 236" role="img" aria-label="τ²-bench, overall Avg@4 (%): InfoPO 17.7, GRPO 27.5, CoPE 28.7.">
-<text class="ttl" x="34" y="20">τ²-bench</text>
-<text class="small mut" x="34" y="36">overall Avg@4 (%)</text>
-<line class="grid" x1="34" y1="186.0" x2="192" y2="186.0"/>
-<text class="tick" x="28" y="190.0" text-anchor="end">0</text>
-<line class="grid" x1="34" y1="119.0" x2="192" y2="119.0"/>
-<text class="tick" x="28" y="123.0" text-anchor="end">25</text>
-<line class="grid" x1="34" y1="52.0" x2="192" y2="52.0"/>
-<text class="tick" x="28" y="56.0" text-anchor="end">50</text>
-<line class="axis" x1="34" y1="186" x2="192" y2="186"/>
-<g class="colg" style="--i:0"><title>InfoPO · τ²-bench: 17.7</title><path class="col" d="M45.3,186 V142.6 a4,4 0 0 1 4,-4 H71.3 a4,4 0 0 1 4,4 V186 z" fill="#CDBFB4"/><text class="val" x="60.3" y="131.6" text-anchor="middle">17.7</text><text class="xlab" x="60.3" y="204" text-anchor="middle">InfoPO</text></g>
-<g class="colg is-ref" style="--i:1"><title>GRPO · τ²-bench: 27.5</title><path class="col" d="M98.0,186 V116.3 a4,4 0 0 1 4,-4 H124.0 a4,4 0 0 1 4,4 V186 z" fill="#8E7B70"/><text class="val" x="113.0" y="105.3" text-anchor="middle">27.5</text><text class="xlab" x="113.0" y="204" text-anchor="middle">GRPO</text></g>
-<g class="colg is-ours" style="--i:2"><title>CoPE · τ²-bench: 28.7</title><path class="col" d="M150.7,186 V113.1 a4,4 0 0 1 4,-4 H176.7 a4,4 0 0 1 4,4 V186 z" fill="#C8663A"/><text class="val" x="165.7" y="102.1" text-anchor="middle">28.7</text><text class="xlab" x="165.7" y="204" text-anchor="middle">CoPE</text></g>
+<svg viewBox="0 0 200 196" role="img" aria-label="τ²-bench, overall Avg@4 (%): InfoPO 17.7, GRPO 27.5, CoPE 28.7.">
+<text class="ttl" x="34" y="18">τ²-bench</text>
+<text class="small mut" x="34" y="32">overall Avg@4 (%)</text>
+<line class="grid" x1="34" y1="152.0" x2="192" y2="152.0"/>
+<text class="tick" x="28" y="156.0" text-anchor="end">0</text>
+<line class="grid" x1="34" y1="99.0" x2="192" y2="99.0"/>
+<text class="tick" x="28" y="103.0" text-anchor="end">25</text>
+<line class="grid" x1="34" y1="46.0" x2="192" y2="46.0"/>
+<text class="tick" x="28" y="50.0" text-anchor="end">50</text>
+<line class="axis" x1="34" y1="152" x2="192" y2="152"/>
+<g class="colg" style="--i:0"><title>InfoPO · τ²-bench: 17.7</title><path class="col" d="M47.3,152 V118.5 a4,4 0 0 1 4,-4 H69.3 a4,4 0 0 1 4,4 V152 z" fill="#86ABDB"/><text class="val" x="60.3" y="108.5" text-anchor="middle">17.7</text><text class="xlab" x="60.3" y="168" text-anchor="middle">InfoPO</text></g>
+<g class="colg" style="--i:1"><title>GRPO · τ²-bench: 27.5</title><path class="col" d="M100.0,152 V97.7 a4,4 0 0 1 4,-4 H122.0 a4,4 0 0 1 4,4 V152 z" fill="#5484C4"/><text class="val" x="113.0" y="87.7" text-anchor="middle">27.5</text><text class="xlab" x="113.0" y="168" text-anchor="middle">GRPO</text></g>
+<g class="colg is-ours" style="--i:2"><title>CoPE · τ²-bench: 28.7</title><path class="col" d="M152.7,152 V95.2 a4,4 0 0 1 4,-4 H174.7 a4,4 0 0 1 4,4 V152 z" fill="#265391"/><text class="val" x="165.7" y="85.2" text-anchor="middle" fill="#265391">28.7</text><text class="xlab" x="165.7" y="168" text-anchor="middle" fill="#265391">CoPE</text></g>
 </svg>
     </div>
     <div class="chart-panel">
-<svg viewBox="0 0 200 236" role="img" aria-label="AppWorld, Normal split (%): GiGPO 25.7, GRPO 41.7, CoPE 55.4.">
-<text class="ttl" x="34" y="20">AppWorld</text>
-<text class="small mut" x="34" y="36">Normal split (%)</text>
-<line class="grid" x1="34" y1="186.0" x2="192" y2="186.0"/>
-<text class="tick" x="28" y="190.0" text-anchor="end">0</text>
-<line class="grid" x1="34" y1="119.0" x2="192" y2="119.0"/>
-<text class="tick" x="28" y="123.0" text-anchor="end">30</text>
-<line class="grid" x1="34" y1="52.0" x2="192" y2="52.0"/>
-<text class="tick" x="28" y="56.0" text-anchor="end">60</text>
-<line class="axis" x1="34" y1="186" x2="192" y2="186"/>
-<g class="colg" style="--i:0"><title>GiGPO · AppWorld: 25.7</title><path class="col" d="M45.3,186 V132.6 a4,4 0 0 1 4,-4 H71.3 a4,4 0 0 1 4,4 V186 z" fill="#CDBFB4"/><text class="val" x="60.3" y="121.6" text-anchor="middle">25.7</text><text class="xlab" x="60.3" y="204" text-anchor="middle">GiGPO</text></g>
-<g class="colg is-ref" style="--i:1"><title>GRPO · AppWorld: 41.7</title><path class="col" d="M98.0,186 V96.9 a4,4 0 0 1 4,-4 H124.0 a4,4 0 0 1 4,4 V186 z" fill="#8E7B70"/><text class="val" x="113.0" y="85.9" text-anchor="middle">41.7</text><text class="xlab" x="113.0" y="204" text-anchor="middle">GRPO</text></g>
-<g class="colg is-ours" style="--i:2"><title>CoPE · AppWorld: 55.4</title><path class="col" d="M150.7,186 V66.3 a4,4 0 0 1 4,-4 H176.7 a4,4 0 0 1 4,4 V186 z" fill="#C8663A"/><text class="val" x="165.7" y="55.3" text-anchor="middle">55.4</text><text class="xlab" x="165.7" y="204" text-anchor="middle">CoPE</text></g>
+<svg viewBox="0 0 200 196" role="img" aria-label="AppWorld, Normal split (%): GiGPO 25.7, GRPO 41.7, CoPE 55.4.">
+<text class="ttl" x="34" y="18">AppWorld</text>
+<text class="small mut" x="34" y="32">Normal split (%)</text>
+<line class="grid" x1="34" y1="152.0" x2="192" y2="152.0"/>
+<text class="tick" x="28" y="156.0" text-anchor="end">0</text>
+<line class="grid" x1="34" y1="99.0" x2="192" y2="99.0"/>
+<text class="tick" x="28" y="103.0" text-anchor="end">30</text>
+<line class="grid" x1="34" y1="46.0" x2="192" y2="46.0"/>
+<text class="tick" x="28" y="50.0" text-anchor="end">60</text>
+<line class="axis" x1="34" y1="152" x2="192" y2="152"/>
+<g class="colg" style="--i:0"><title>GiGPO · AppWorld: 25.7</title><path class="col" d="M47.3,152 V110.6 a4,4 0 0 1 4,-4 H69.3 a4,4 0 0 1 4,4 V152 z" fill="#B9A2D8"/><text class="val" x="60.3" y="100.6" text-anchor="middle">25.7</text><text class="xlab" x="60.3" y="168" text-anchor="middle">GiGPO</text></g>
+<g class="colg" style="--i:1"><title>GRPO · AppWorld: 41.7</title><path class="col" d="M100.0,152 V82.3 a4,4 0 0 1 4,-4 H122.0 a4,4 0 0 1 4,4 V152 z" fill="#8A68B8"/><text class="val" x="113.0" y="72.3" text-anchor="middle">41.7</text><text class="xlab" x="113.0" y="168" text-anchor="middle">GRPO</text></g>
+<g class="colg is-ours" style="--i:2"><title>CoPE · AppWorld: 55.4</title><path class="col" d="M152.7,152 V58.1 a4,4 0 0 1 4,-4 H174.7 a4,4 0 0 1 4,4 V152 z" fill="#523580"/><text class="val" x="165.7" y="48.1" text-anchor="middle" fill="#523580">55.4</text><text class="xlab" x="165.7" y="168" text-anchor="middle" fill="#523580">CoPE</text></g>
 </svg>
     </div>
   </div>

@@ -1,7 +1,6 @@
 /* ---------- results charts ----------
- * Column panels and line charts are inline SVG; each figure carries a legend
- * (colour = method, the same method keeps its colour across panels) and a
- * collapsed table twin.
+ * One inline-SVG column panel per benchmark, each in its own hue with the
+ * darkest step on CoPE, plus a collapsed table twin.
  */
 
 .results .chart { margin: 0 0 8px; }
@@ -24,7 +23,8 @@
   align-items: start;
 }
 
-.chart-row-5 { grid-template-columns: repeat(5, 1fr); gap: 8px 14px; }
+.chart-main { max-width: 820px; margin: 0 auto 8px; }
+.chart-row-5 { grid-template-columns: repeat(5, 1fr); gap: 8px 12px; }
 
 @media (max-width: 760px) {
   .chart-row-5 { grid-template-columns: repeat(2, 1fr); gap: 12px 20px; }
@@ -42,7 +42,7 @@
 .chart-panel text { fill: var(--ink); font-size: 13px; }
 .chart-panel .ttl { font-size: 15px; font-weight: 700; }
 .chart-panel .tick { font-size: 12px; fill: var(--ink-soft); }
-.chart-panel .small { font-size: 11.5px; }
+.chart-panel .small { font-size: 11px; }
 .chart-panel .mut { fill: var(--ink-soft); }
 .chart-panel .grid { stroke: var(--rule); stroke-width: 1; }
 .chart-panel .axis { stroke: #C9BDB5; stroke-width: 1; }
@@ -50,10 +50,10 @@
 /* ----- column panels ----- */
 
 .chart-panel .col { transform-box: fill-box; transform-origin: center bottom; }
-.chart-panel .val { font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.chart-panel .is-ours .val { font-weight: 700; fill: var(--brown-dark); }
-.chart-panel .xlab { font-size: 11.5px; fill: var(--ink-soft); }
-.chart-panel .is-ours .xlab { fill: var(--brown-dark); font-weight: 700; }
+.chart-panel .val { font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.chart-panel .is-ours .val { font-weight: 700; }
+.chart-panel .xlab { font-size: 12.5px; fill: var(--ink-soft); }
+.chart-panel .is-ours .xlab { font-weight: 700; }
 
 .chart.is-in .col {
   animation: col-grow 0.5s ease-out both;
