@@ -1,0 +1,355 @@
+/* ---------- explanatory animations ----------
+ * Each figure.anim carries data-scene="N" (set by static/js/anim.js).
+ * Elements with .sc are hidden unless the current scene lists them
+ * (.sc-N) or a scene-specific keyframe animates them in.
+ */
+
+:root {
+  --af1: #4F7CAC;
+  --af2: #86A7CC;
+  --af3: #BBD0E6;
+  --ok: #3F8F5A;
+  --amber: #E0A33A;
+  --amber-deep: #B8801E;
+}
+
+.anim-row {
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 760px) {
+  .anim-row { grid-template-columns: 1fr; }
+}
+
+.anim { margin: 0; }
+
+.anim-loss {
+  max-width: 640px;
+  margin: 0 auto 28px;
+}
+
+.anim svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: #fff;
+  font-family: inherit;
+}
+
+.anim text {
+  fill: var(--ink);
+  font-size: 12px;
+}
+
+.anim .mut { fill: var(--ink-soft); }
+.anim .ttl { font-size: 14px; font-weight: 700; }
+.anim .small { font-size: 10.5px; }
+.anim .pp { transform-box: fill-box; transform-origin: center; }
+
+/* scene gating: leave fast, enter after a short gap so scenes never cross-fade */
+.anim .sc { opacity: 0; transition: opacity 0.12s ease; }
+.anim[data-scene="0"] .sc-0,
+.anim[data-scene="1"] .sc-1,
+.anim[data-scene="2"] .sc-2,
+.anim[data-scene="3"] .sc-3,
+.anim:not([data-scene]) .fin { opacity: 1; transition: opacity 0.3s ease 0.15s; }
+
+/* ---------- controls ---------- */
+
+.anim-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.anim-dots { display: flex; }
+
+.anim-dot {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  border-radius: 50%;
+}
+
+.anim-dot::before {
+  content: "";
+  display: block;
+  width: 8px;
+  height: 8px;
+  margin: 0 auto;
+  border-radius: 50%;
+  background: var(--cream-deep);
+  border: 1px solid var(--rule);
+  transition: background 0.2s, border-color 0.2s, transform 0.2s;
+}
+
+.anim-dot:hover::before { border-color: var(--brown); }
+
+.anim-dot.is-on::before {
+  background: var(--terracotta);
+  border-color: var(--terracotta);
+  transform: scale(1.25);
+}
+
+.anim-dot:focus-visible { outline: 2px solid var(--terracotta); outline-offset: -3px; }
+
+.anim-replay {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 3px 11px 3px 9px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.anim-replay:hover { color: var(--brown); border-color: var(--brown); }
+.anim-replay:focus-visible { outline: 2px solid var(--terracotta); outline-offset: 2px; }
+
+.anim-replay svg {
+  width: 11px;
+  height: 11px;
+  fill: currentColor;
+  border: 0;
+  background: none;
+  border-radius: 0;
+}
+
+@media (pointer: coarse) {
+  .anim-dot { width: 44px; height: 44px; }
+  .anim-replay { min-height: 44px; }
+}
+
+/* ---------- captions ---------- */
+
+.anim-caps {
+  display: grid;
+  margin-top: 4px;
+  font-size: 0.88rem;
+  color: var(--ink-soft);
+  line-height: 1.55;
+}
+
+.anim-caps .anim-cap {
+  grid-area: 1 / 1;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.anim-caps .anim-cap.is-on,
+.anim:not([data-scene]) .anim-cap-static { opacity: 1; transition: opacity 0.3s ease 0.15s; }
+
+.anim-caps b { color: var(--ink); }
+
+/* ---------- keyframes ---------- */
+
+@keyframes anim-pop {
+  from { opacity: 0; transform: scale(0.6); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes anim-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes anim-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes anim-draw {
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes anim-reveal {
+  from { width: 0; }
+  to   { width: 302px; }
+}
+
+@keyframes anim-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
+@keyframes anim-fill-rect {
+  to { fill: var(--terracotta); stroke: var(--terracotta); }
+}
+
+@keyframes anim-fill-text {
+  to { fill: #fff; }
+}
+
+.anim .drawn {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+
+/* ---------- animation 1: which step-wise target ---------- */
+
+.anim-targets .o-node circle,
+.anim-targets .a-node rect {
+  fill: #fff;
+  stroke: var(--ink-soft);
+  stroke-width: 1.4;
+}
+
+.anim-targets .node text { font-size: 11px; font-weight: 600; }
+.anim-targets .link { stroke: var(--rule); stroke-width: 1.5; }
+
+.anim-targets[data-scene="0"] .node {
+  animation: anim-pop 0.45s cubic-bezier(0.2, 0.8, 0.3, 1.2) both;
+  animation-delay: calc(var(--i) * 90ms);
+}
+
+.anim-targets[data-scene="0"] .link {
+  animation: anim-fade 0.3s both;
+  animation-delay: calc(var(--i) * 90ms + 70ms);
+}
+
+.anim-targets[data-scene="0"] .hist { animation: anim-rise 0.5s both 1.7s; }
+.anim-targets[data-scene="0"] .q    { animation: anim-pop 0.4s both 2.3s; }
+
+.anim-targets[data-scene="1"] .bcast { animation: anim-draw 0.9s ease-out both 0.2s; }
+.anim-targets[data-scene="1"] .vchip {
+  animation: anim-pop 0.35s both;
+  animation-delay: calc(0.55s + var(--j) * 140ms);
+}
+.anim-targets[data-scene="1"] .verdict-1 { animation: anim-rise 0.4s both 1.9s; }
+
+.anim-targets[data-scene="2"] .obs-arrow { animation: anim-draw 0.7s ease-out both 0.2s; }
+.anim-targets[data-scene="2"] .obs-head  { animation: anim-fade 0.2s both 0.85s; }
+.anim-targets[data-scene="2"] .log       { animation: anim-pop 0.45s both 0.9s; }
+.anim-targets[data-scene="2"] .log-line {
+  animation: anim-fade 0.25s both;
+  animation-delay: calc(1.25s + var(--i) * 70ms);
+}
+.anim-targets[data-scene="2"] .log-tag   { animation: anim-rise 0.4s both 1.95s; }
+.anim-targets[data-scene="2"] .verdict-2 { animation: anim-rise 0.4s both 2.4s; }
+
+.anim-targets[data-scene="3"] .arc {
+  animation: anim-draw 0.55s ease-out both;
+  animation-delay: calc(0.2s + var(--k) * 0.5s);
+}
+.anim-targets[data-scene="3"] .arc-head {
+  animation: anim-fade 0.2s both;
+  animation-delay: calc(0.65s + var(--k) * 0.5s);
+}
+.anim-targets[data-scene="3"] .a-hit rect {
+  animation: anim-fill-rect 0.3s both;
+  animation-delay: calc(0.6s + var(--k) * 0.5s);
+}
+.anim-targets[data-scene="3"] .a-hit text {
+  animation: anim-fill-text 0.3s both;
+  animation-delay: calc(0.6s + var(--k) * 0.5s);
+}
+.anim-targets[data-scene="3"] .verdict-3 { animation: anim-rise 0.4s both 2.6s; }
+
+.anim-targets .verdict text { font-size: 12.5px; font-weight: 600; }
+.anim-targets .verdict-1 text,
+.anim-targets .verdict-2 text { fill: var(--red); }
+.anim-targets .verdict-3 text { fill: var(--ok); }
+
+/* ---------- animation 2: sample efficiency ---------- */
+
+.anim-eff .axis { stroke: var(--ink-soft); stroke-width: 1.2; }
+.anim-eff .grid { stroke: var(--rule); stroke-width: 1; }
+.anim-eff .tick { font-size: 10.5px; fill: var(--ink-soft); }
+.anim-eff .curve-g { fill: none; stroke: #8E7B70; stroke-width: 2; stroke-linejoin: round; }
+.anim-eff .curve-c { fill: none; stroke: var(--terracotta); stroke-width: 2.5; stroke-linejoin: round; }
+.anim-eff .target { stroke: var(--ink-soft); stroke-width: 1; stroke-dasharray: 4 3; }
+.anim-eff .drop { stroke-width: 1.2; stroke-dasharray: 3 3; }
+.anim-eff .mk-c .drop { stroke: var(--terracotta); }
+.anim-eff .mk-g .drop { stroke: #8E7B70; }
+.anim-eff .brk path { fill: none; stroke: var(--terracotta); stroke-width: 1.5; }
+.anim-eff .brk text { fill: var(--brown-dark); }
+
+.anim-eff .reveal { width: 0; }
+.anim-eff[data-scene="0"] .reveal { animation: anim-reveal 4s linear both; }
+.anim-eff[data-scene="1"] .reveal,
+.anim-eff:not([data-scene]) .reveal { width: 302px; }
+
+.anim-eff[data-scene="0"] .mk-c { animation: anim-fade 0.3s both 2s; }
+.anim-eff[data-scene="0"] .mk-g { animation: anim-fade 0.3s both 3.2s; }
+.anim-eff[data-scene="0"] .brk  { animation: anim-rise 0.4s both 3.7s; }
+
+/* ---------- animation 3: the loss, diagonal to band ---------- */
+
+.anim-loss .gl { stroke: var(--rule); stroke-width: 1; }
+.anim-loss .lbl { font-size: 11px; fill: var(--ink-soft); }
+.anim-loss .cell text { font-size: 11px; font-weight: 700; }
+.anim-loss .cell rect { stroke: #fff; stroke-width: 1; }
+.anim-loss .k0 rect { fill: var(--terracotta); }
+.anim-loss .k1 rect { fill: var(--af1); }
+.anim-loss .k2 rect { fill: var(--af2); }
+.anim-loss .k3 rect { fill: var(--af3); }
+.anim-loss .k0 text,
+.anim-loss .k1 text { fill: #fff; }
+.anim-loss .k2 text,
+.anim-loss .k3 text { fill: var(--ink); }
+
+.anim-loss .formula { font-size: 17px; font-weight: 600; }
+.anim-loss .formula .sub { font-size: 10px; font-weight: 600; }
+.anim-loss .fterm { fill-opacity: 0; transition: fill-opacity 0.35s ease; }
+.anim-loss[data-scene="2"] .fterm,
+.anim-loss[data-scene="3"] .fterm,
+.anim-loss:not([data-scene]) .fterm { fill-opacity: 1; }
+
+.anim-loss .col-hl { fill: none; stroke: var(--amber-deep); stroke-width: 2.5; }
+
+.anim-loss[data-scene="0"] .board { animation: anim-fade 0.6s both; }
+.anim-loss[data-scene="0"] .lbl  { animation: anim-fade 0.4s both; animation-delay: calc(0.3s + var(--i) * 50ms); }
+
+.anim-loss[data-scene="1"] .k0 {
+  animation: anim-pop 0.35s cubic-bezier(0.2, 0.8, 0.3, 1.2) both;
+  animation-delay: calc(0.2s + var(--i) * 130ms);
+}
+.anim-loss[data-scene="1"] .tag-grpo { animation: anim-rise 0.4s both 1.3s; }
+
+.anim-loss[data-scene="2"] .k1 {
+  animation: anim-pop 0.35s both;
+  animation-delay: calc(0.4s + var(--i) * 90ms);
+}
+.anim-loss[data-scene="2"] .k2 {
+  animation: anim-pop 0.35s both;
+  animation-delay: calc(1.3s + var(--i) * 90ms);
+}
+.anim-loss[data-scene="2"] .k3 {
+  animation: anim-pop 0.35s both;
+  animation-delay: calc(2.2s + var(--i) * 90ms);
+}
+.anim-loss[data-scene="2"] .tag-af { animation: anim-rise 0.4s both 0.3s; }
+
+.anim-loss[data-scene="3"] .col-hl { animation: anim-pulse 1.6s ease-in-out 0.3s 2 both; }
+.anim-loss[data-scene="3"] .col-note { animation: anim-rise 0.4s both 0.5s; }
+
+/* ---------- reduced motion ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .anim *,
+  .anim *::before {
+    animation: none !important;
+    transition: none !important;
+  }
+  .anim .drawn { stroke-dashoffset: 0; }
+  .anim-eff .reveal { width: 302px; }
+  .anim-targets[data-scene="3"] .a-hit rect { fill: var(--terracotta); stroke: var(--terracotta); }
+  .anim-targets[data-scene="3"] .a-hit text { fill: #fff; }
+}

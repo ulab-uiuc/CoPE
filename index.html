@@ -16,6 +16,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="static/css/style.css" />
+<link rel="stylesheet" href="static/css/anim.css" />
+<script src="static/js/anim.js" defer></script>
 </head>
 
 <body>
@@ -107,23 +109,175 @@
 <section>
   <div class="wrap">
     <h2>Why action targets</h2>
-    <figure>
-      <img src="static/images/fig-motivation.png"
-           alt="Three panels: noisy observations versus clean actions; the three kinds of targets; CoPE's sample efficiency on AppWorld." />
-      <figcaption>
-        <b>Motivation.</b> (a) A terminal observation contains many tokens that carry no
-        learning signal, while the action that follows is short and clean. (b) Value targets
-        share one trajectory-level signal across every step; observation targets reach only
-        one step ahead; action targets are step-specific and multi-step. (c) CoPE reaches
-        GRPO's score in 1.6&times; fewer training steps on AppWorld.
+    <div class="anim-row">
+    <figure class="anim anim-targets" data-durations="3400,3400,3600,4400">
+<svg viewBox="0 0 560 300" role="img" aria-label="Which step-wise target to predict: value targets share one scalar across steps, observation targets are long, noisy and one step ahead, multi-step action targets are short, clean and step-specific.">
+<text class="ttl sc sc-0 fin" x="20" y="30">A trajectory, rewarded only at the end</text>
+<text class="ttl sc sc-1" x="20" y="30">Value targets  V(h<tspan dy="3" font-size="9">t</tspan><tspan dy="-3">)</tspan></text>
+<text class="ttl sc sc-2" x="20" y="30">Observation targets  ô<tspan dy="3" font-size="9">t+1</tspan></text>
+<text class="ttl sc sc-3" x="20" y="30">Multi-step action targets  a<tspan dy="3" font-size="9">t:t+3</tspan><tspan dy="-3">  (CoPE)</tspan></text>
+<line class="link" style="--i:0" x1="48" y1="168" x2="61" y2="168"/>
+<line class="link" style="--i:1" x1="89" y1="168" x2="102" y2="168"/>
+<line class="link" style="--i:2" x1="130" y1="168" x2="143" y2="168"/>
+<line class="link" style="--i:3" x1="171" y1="168" x2="184" y2="168"/>
+<line class="link" style="--i:4" x1="212" y1="168" x2="225" y2="168"/>
+<line class="link" style="--i:5" x1="253" y1="168" x2="266" y2="168"/>
+<line class="link" style="--i:6" x1="294" y1="168" x2="307" y2="168"/>
+<line class="link" style="--i:7" x1="335" y1="168" x2="348" y2="168"/>
+<line class="link" style="--i:8" x1="376" y1="168" x2="389" y2="168"/>
+<line class="link" style="--i:9" x1="417" y1="168" x2="430" y2="168"/>
+<line class="link" style="--i:10" x1="458" y1="168" x2="471" y2="168"/>
+<line class="link" style="--i:11" x1="499" y1="168" x2="512" y2="168" stroke-dasharray="3 3"/>
+<g class="node o-node pp" style="--i:0"><circle cx="34" cy="168" r="13"/><text x="34" y="172" text-anchor="middle">o<tspan dy="3" font-size="8">0</tspan></text></g>
+<g class="node a-node pp" style="--i:1"><rect x="62" y="155" width="26" height="26" rx="6"/><text x="75" y="172" text-anchor="middle">a<tspan dy="3" font-size="8">0</tspan></text></g>
+<g class="node o-node pp" style="--i:2"><circle cx="116" cy="168" r="13"/><text x="116" y="172" text-anchor="middle">o<tspan dy="3" font-size="8">1</tspan></text></g>
+<g class="node a-node pp" style="--i:3"><rect x="144" y="155" width="26" height="26" rx="6"/><text x="157" y="172" text-anchor="middle">a<tspan dy="3" font-size="8">1</tspan></text></g>
+<g class="node o-node pp" style="--i:4"><circle cx="198" cy="168" r="13"/><text x="198" y="172" text-anchor="middle">o<tspan dy="3" font-size="8">2</tspan></text></g>
+<g class="node a-node pp a-hit" style="--i:5;--k:0"><rect x="226" y="155" width="26" height="26" rx="6"/><text x="239" y="172" text-anchor="middle">a<tspan dy="3" font-size="8">2</tspan></text></g>
+<g class="node o-node pp" style="--i:6"><circle cx="280" cy="168" r="13"/><text x="280" y="172" text-anchor="middle">o<tspan dy="3" font-size="8">3</tspan></text></g>
+<g class="node a-node pp a-hit" style="--i:7;--k:1"><rect x="308" y="155" width="26" height="26" rx="6"/><text x="321" y="172" text-anchor="middle">a<tspan dy="3" font-size="8">3</tspan></text></g>
+<g class="node o-node pp" style="--i:8"><circle cx="362" cy="168" r="13"/><text x="362" y="172" text-anchor="middle">o<tspan dy="3" font-size="8">4</tspan></text></g>
+<g class="node a-node pp a-hit" style="--i:9;--k:2"><rect x="390" y="155" width="26" height="26" rx="6"/><text x="403" y="172" text-anchor="middle">a<tspan dy="3" font-size="8">4</tspan></text></g>
+<g class="node o-node pp" style="--i:10"><circle cx="444" cy="168" r="13"/><text x="444" y="172" text-anchor="middle">o<tspan dy="3" font-size="8">5</tspan></text></g>
+<g class="node a-node pp a-hit" style="--i:11;--k:3"><rect x="472" y="155" width="26" height="26" rx="6"/><text x="485" y="172" text-anchor="middle">a<tspan dy="3" font-size="8">5</tspan></text></g>
+<g class="node y-node pp" style="--i:12"><circle cx="526" cy="168" r="14" fill="#E0A33A"/><text x="526" y="173" text-anchor="middle" fill="#fff" font-weight="700" font-size="13">Y</text><text class="small mut" x="526" y="199" text-anchor="middle">Y = 1</text></g>
+<g class="hist sc sc-1 sc-2 sc-3 fin pp"><path d="M21,186 v6 h190 v-6" fill="none" stroke="#6B5447" stroke-width="1.2"/><text class="small mut" x="116" y="207" text-anchor="middle">history h<tspan dy="2" font-size="8">t</tspan><tspan dy="-2">  (t = 2)</tspan></text></g>
+<g class="q sc pp"><circle cx="198" cy="128" r="12" fill="#fff" stroke="#C8663A" stroke-width="1.5" stroke-dasharray="3 2"/><text x="198" y="133" text-anchor="middle" fill="#C8663A" font-weight="700" font-size="13">?</text></g>
+<path class="bcast drawn sc sc-1" d="M526,154 V126 H34" pathLength="1" fill="none" stroke="#E0A33A" stroke-width="1.5"/>
+<g class="vchip sc pp" style="--j:0"><rect x="434" y="118.5" width="20" height="15" rx="4" fill="#E0A33A"/><text x="444" y="129.5" text-anchor="middle" fill="#fff" font-weight="700" font-size="10">1</text></g>
+<g class="vchip sc pp" style="--j:1"><rect x="352" y="118.5" width="20" height="15" rx="4" fill="#E0A33A"/><text x="362" y="129.5" text-anchor="middle" fill="#fff" font-weight="700" font-size="10">1</text></g>
+<g class="vchip sc pp" style="--j:2"><rect x="270" y="118.5" width="20" height="15" rx="4" fill="#E0A33A"/><text x="280" y="129.5" text-anchor="middle" fill="#fff" font-weight="700" font-size="10">1</text></g>
+<g class="vchip sc pp" style="--j:3"><rect x="188" y="118.5" width="20" height="15" rx="4" fill="#E0A33A"/><text x="198" y="129.5" text-anchor="middle" fill="#fff" font-weight="700" font-size="10">1</text></g>
+<g class="vchip sc pp" style="--j:4"><rect x="106" y="118.5" width="20" height="15" rx="4" fill="#E0A33A"/><text x="116" y="129.5" text-anchor="middle" fill="#fff" font-weight="700" font-size="10">1</text></g>
+<g class="vchip sc pp" style="--j:5"><rect x="24" y="118.5" width="20" height="15" rx="4" fill="#E0A33A"/><text x="34" y="129.5" text-anchor="middle" fill="#fff" font-weight="700" font-size="10">1</text></g>
+<g class="verdict verdict-1 sc pp"><path d="M28,259 l12,12 M40,259 l-12,12" stroke="#BE4637" stroke-width="2.5" stroke-linecap="round"/><text x="50" y="270">shared: every step gets the same scalar</text></g>
+<path class="obs-arrow drawn sc sc-2" d="M203,157 C203,128 206,90 220,90" pathLength="1" fill="none" stroke="#6B5447" stroke-width="1.6"/>
+<path class="obs-head sc sc-2" d="M220.0,90.0 L211.0,94.0 L211.0,86.0 z" fill="#6B5447"/>
+<g class="log sc sc-2 pp"><rect x="226" y="52" width="180" height="76" rx="6" fill="#FBFAF8" stroke="#EFD9C9"/><text class="small mut" x="234" y="65">ô<tspan dy="2" font-size="8">3</tspan><tspan dy="-2">: terminal output</tspan></text><rect class="log-line" style="--i:0" x="234" y="72" width="120" height="4" rx="2" fill="#D9D2CB"/><rect class="log-line" style="--i:1" x="234" y="80" width="150" height="4" rx="2" fill="#D9D2CB"/><rect class="log-line" style="--i:2" x="234" y="88" width="92" height="4" rx="2" fill="#D9D2CB"/><rect class="log-line" style="--i:3" x="234" y="96" width="138" height="4" rx="2" fill="#D9D2CB"/><rect class="log-line" style="--i:4" x="234" y="104" width="110" height="4" rx="2" fill="#3F8F5A"/><rect class="log-line" style="--i:5" x="234" y="112" width="130" height="4" rx="2" fill="#D9D2CB"/><rect class="log-line" style="--i:6" x="234" y="120" width="98" height="4" rx="2" fill="#D9D2CB"/><text class="log-line" style="--i:4" x="350" y="108" font-size="9" fill="#3F8F5A" font-weight="600">relevant</text><text class="log-tag sc" x="398" y="65" text-anchor="end" font-size="10" font-weight="700" fill="#BE4637">long · noisy</text></g>
+<g class="verdict verdict-2 sc pp"><path d="M28,259 l12,12 M40,259 l-12,12" stroke="#BE4637" stroke-width="2.5" stroke-linecap="round"/><text x="50" y="270">one step ahead, and mostly noise</text></g>
+<path class="arc drawn sc sc-3" style="--k:0" d="M198,154 Q218.5,98 239,154" pathLength="1" fill="none" stroke="#C8663A" stroke-width="2"/>
+<path class="arc-head sc sc-3" style="--k:0" d="M239.0,154.0 L232.1,146.9 L239.7,144.2 z" fill="#C8663A"/>
+<path class="arc drawn sc sc-3" style="--k:1" d="M198,154 Q259.5,62 321,154" pathLength="1" fill="none" stroke="#C8663A" stroke-width="2"/>
+<path class="arc-head sc sc-3" style="--k:1" d="M321.0,154.0 L312.7,148.7 L319.3,144.3 z" fill="#C8663A"/>
+<path class="arc drawn sc sc-3" style="--k:2" d="M198,154 Q300.5,26 403,154" pathLength="1" fill="none" stroke="#C8663A" stroke-width="2"/>
+<path class="arc-head sc sc-3" style="--k:2" d="M403.0,154.0 L394.3,149.5 L400.5,144.5 z" fill="#C8663A"/>
+<path class="arc drawn sc sc-3" style="--k:3" d="M198,154 Q341.5,-10 485,154" pathLength="1" fill="none" stroke="#C8663A" stroke-width="2"/>
+<path class="arc-head sc sc-3" style="--k:3" d="M485.0,154.0 L476.1,149.9 L482.1,144.6 z" fill="#C8663A"/>
+<g class="verdict verdict-3 sc pp"><path d="M27,265 l5,5 l10,-11" fill="none" stroke="#3F8F5A" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><text x="50" y="270">short, clean, step-specific, K steps ahead</text></g>
+</svg>
+      <div class="anim-bar">
+        <div class="anim-dots" role="group" aria-label="Scenes"></div>
+        <button class="anim-replay" type="button"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg>Replay</button>
+      </div>
+      <figcaption class="anim-caps">
+        <span class="anim-cap anim-cap-static" data-for="0"><b>One reward, many steps.</b> A rollout is a sequence of observations and actions, but the only supervision is a scalar <i>Y</i> at the very end. What should each history <i>h<sub>t</sub></i> learn to predict?</span>
+        <span class="anim-cap" data-for="1"><b>Value targets.</b> Estimate how likely success is from <i>h<sub>t</sub></i>. The label is the same <i>Y</i> for every step of the trajectory, so no step gets anything step-specific.</span>
+        <span class="anim-cap" data-for="2"><b>Observation targets.</b> Predict the next observation. Web pages and terminal logs are long and mostly noise, and the target reaches only one step ahead.</span>
+        <span class="anim-cap" data-for="3"><b>Multi-step action targets (CoPE).</b> Forecast the next <i>K</i> actions from <i>h<sub>t</sub></i>. Each target is short and clean, differs by step, and reaches <i>K</i> steps ahead.</span>
       </figcaption>
     </figure>
+    <figure class="anim anim-eff" data-durations="4600,3800">
+<svg viewBox="0 0 370 300" role="img" aria-label="Task score against training steps on AppWorld: CoPE reaches a score of 0.5 at about step 50, GRPO at about step 80, 1.6 times fewer steps.">
+<defs><clipPath id="eff-clip"><rect class="reveal" x="48" y="30" width="0" height="230"/></clipPath></defs>
+<text class="ttl" x="48" y="26">AppWorld</text>
+<line x1="196" y1="21" x2="210" y2="21" stroke="#C8663A" stroke-width="2.5"/><text class="small" x="214" y="25">CoPE (ours)</text>
+<line x1="292" y1="21" x2="306" y2="21" stroke="#8E7B70" stroke-width="2"/><text class="small" x="310" y="25">GRPO</text>
+<line class="grid" x1="48" y1="180" x2="350" y2="180"/>
+<line class="grid" x1="48" y1="110" x2="350" y2="110"/>
+<line class="grid" x1="48" y1="40" x2="350" y2="40"/>
+<line class="axis" x1="48" y1="250" x2="350" y2="250"/><line class="axis" x1="48" y1="250" x2="48" y2="40"/>
+<text class="tick" x="48" y="266" text-anchor="middle">0</text>
+<text class="tick" x="123.5" y="266" text-anchor="middle">25</text>
+<text class="tick" x="199" y="266" text-anchor="middle">50</text>
+<text class="tick" x="274.5" y="266" text-anchor="middle">75</text>
+<text class="tick" x="350" y="266" text-anchor="middle">100</text>
+<text class="tick" x="42" y="254" text-anchor="end">0.0</text>
+<text class="tick" x="42" y="184" text-anchor="end">0.3</text>
+<text class="tick" x="42" y="114" text-anchor="end">0.6</text>
+<text class="tick" x="42" y="44" text-anchor="end">0.9</text>
+<text class="small mut" x="199" y="286" text-anchor="middle">training steps</text>
+<text class="small mut" x="14" y="145" text-anchor="middle" transform="rotate(-90 14 145)">task score</text>
+<line class="target" x1="48" y1="133.3" x2="350" y2="133.3"/><text class="small mut" x="52" y="129">score 0.5</text>
+<g clip-path="url(#eff-clip)"><path class="curve-g" d="M48.0,224.3 L54.0,225.5 L60.1,220.5 L66.1,212.1 L72.2,211.6 L78.2,211.9 L84.2,204.1 L90.3,198.7 L96.3,200.8 L102.4,197.9 L108.4,189.7 L114.4,188.5 L120.5,190.2 L126.5,184.1 L132.6,178.3 L138.6,180.0 L144.6,179.0 L150.7,171.9 L156.7,169.8 L162.8,171.7 L168.8,167.7 L174.8,162.4 L180.9,163.0 L186.9,162.7 L193.0,157.6 L199.0,155.3 L205.0,156.2 L211.1,153.6 L217.1,149.8 L223.2,149.6 L229.2,148.8 L235.2,145.5 L241.3,144.1 L247.3,143.7 L253.4,141.3 L259.4,139.5 L265.4,139.4 L271.5,137.2 L277.5,134.9 L283.6,135.3 L289.6,134.2 L295.6,130.7 L301.7,130.6 L307.7,131.6 L313.8,128.2 L319.8,125.5 L325.8,127.8 L331.9,127.1 L337.9,122.2 L344.0,122.4 L350.0,125.3"/><path class="curve-c" d="M48.0,225.5 L54.0,219.8 L60.1,218.0 L66.1,211.6 L72.2,203.4 L78.2,201.5 L84.2,199.3 L90.3,190.7 L96.3,185.5 L102.4,186.2 L108.4,181.3 L114.4,172.6 L120.5,171.7 L126.5,172.0 L132.6,164.0 L138.6,158.3 L144.6,160.5 L150.7,157.7 L156.7,148.9 L162.8,147.7 L168.8,149.9 L174.8,143.6 L180.9,137.2 L186.9,139.5 L193.0,138.8 L199.0,131.0 L205.0,128.9 L211.1,131.7 L217.1,127.4 L223.2,121.4 L229.2,122.8 L235.2,123.1 L241.3,117.2 L247.3,114.8 L253.4,116.8 L259.4,114.2 L265.4,109.5 L271.5,109.9 L277.5,110.1 L283.6,106.2 L289.6,104.4 L295.6,105.1 L301.7,103.0 L307.7,100.3 L313.8,100.5 L319.8,99.5 L325.8,96.8 L331.9,96.6 L337.9,96.4 L344.0,93.5 L350.0,92.6"/></g>
+<g class="mk mk-c sc sc-1 fin"><line class="drop" x1="199" y1="131" x2="199" y2="250"/><circle cx="199" cy="131" r="4" fill="#C8663A"/></g>
+<g class="mk mk-g sc sc-1 fin"><line class="drop" x1="289.6" y1="134.2" x2="289.6" y2="250"/><circle cx="289.6" cy="134.2" r="4" fill="#8E7B70"/></g>
+<g class="brk sc sc-1 fin pp"><path d="M199,230 v6 h90.6 v-6"/><text x="244.3" y="225" text-anchor="middle"><tspan font-size="13" font-weight="700">1.6×</tspan><tspan class="small"> fewer steps</tspan></text></g>
+</svg>
+      <div class="anim-bar">
+        <div class="anim-dots" role="group" aria-label="Scenes"></div>
+        <button class="anim-replay" type="button"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg>Replay</button>
+      </div>
+      <figcaption class="anim-caps">
+        <span class="anim-cap" data-for="0"><b>Sample efficiency on AppWorld.</b> Task score during training for CoPE and GRPO, same backbone and same rollout budget per step.</span>
+        <span class="anim-cap anim-cap-static" data-for="1"><b>1.6&times; fewer steps.</b> CoPE reaches a 0.5 task score at about step 50; GRPO needs about 80. On ScienceWorld the gap grows to 2.0&times;.</span>
+      </figcaption>
+    </figure>
+    </div>
   </div>
 </section>
 
 <section>
   <div class="wrap">
     <h2>Method</h2>
+    <figure class="anim anim-loss" data-durations="1600,2800,3800,3800">
+<svg viewBox="0 0 560 270" role="img" aria-label="Loss layout on a history-by-action grid: GRPO supervises the diagonal, CoPE adds an action forecasting loss that extends the diagonal into a band of width K.">
+<g class="board"><rect x="72" y="52" width="189" height="189" fill="#FAF7F4"/><line class="gl" x1="72" y1="52" x2="72" y2="241"/><line class="gl" x1="72" y1="52" x2="261" y2="52"/><line class="gl" x1="99" y1="52" x2="99" y2="241"/><line class="gl" x1="72" y1="79" x2="261" y2="79"/><line class="gl" x1="126" y1="52" x2="126" y2="241"/><line class="gl" x1="72" y1="106" x2="261" y2="106"/><line class="gl" x1="153" y1="52" x2="153" y2="241"/><line class="gl" x1="72" y1="133" x2="261" y2="133"/><line class="gl" x1="180" y1="52" x2="180" y2="241"/><line class="gl" x1="72" y1="160" x2="261" y2="160"/><line class="gl" x1="207" y1="52" x2="207" y2="241"/><line class="gl" x1="72" y1="187" x2="261" y2="187"/><line class="gl" x1="234" y1="52" x2="234" y2="241"/><line class="gl" x1="72" y1="214" x2="261" y2="214"/><line class="gl" x1="261" y1="52" x2="261" y2="241"/><line class="gl" x1="72" y1="241" x2="261" y2="241"/></g>
+<text class="lbl" style="--i:0" x="85.5" y="44" text-anchor="middle">a<tspan dy="3" font-size="8">0</tspan></text>
+<text class="lbl" style="--i:1" x="112.5" y="44" text-anchor="middle">a<tspan dy="3" font-size="8">1</tspan></text>
+<text class="lbl" style="--i:2" x="139.5" y="44" text-anchor="middle">a<tspan dy="3" font-size="8">2</tspan></text>
+<text class="lbl" style="--i:3" x="166.5" y="44" text-anchor="middle">a<tspan dy="3" font-size="8">3</tspan></text>
+<text class="lbl" style="--i:4" x="193.5" y="44" text-anchor="middle">a<tspan dy="3" font-size="8">4</tspan></text>
+<text class="lbl" style="--i:5" x="220.5" y="44" text-anchor="middle">a<tspan dy="3" font-size="8">5</tspan></text>
+<text class="lbl" style="--i:6" x="247.5" y="44" text-anchor="middle">a<tspan dy="3" font-size="8">6</tspan></text>
+<text class="lbl" style="--i:7" x="64" y="69.5" text-anchor="end">h<tspan dy="3" font-size="8">0</tspan></text>
+<text class="lbl" style="--i:8" x="64" y="96.5" text-anchor="end">h<tspan dy="3" font-size="8">1</tspan></text>
+<text class="lbl" style="--i:9" x="64" y="123.5" text-anchor="end">h<tspan dy="3" font-size="8">2</tspan></text>
+<text class="lbl" style="--i:10" x="64" y="150.5" text-anchor="end">h<tspan dy="3" font-size="8">3</tspan></text>
+<text class="lbl" style="--i:11" x="64" y="177.5" text-anchor="end">h<tspan dy="3" font-size="8">4</tspan></text>
+<text class="lbl" style="--i:12" x="64" y="204.5" text-anchor="end">h<tspan dy="3" font-size="8">5</tspan></text>
+<text class="lbl" style="--i:13" x="64" y="231.5" text-anchor="end">h<tspan dy="3" font-size="8">6</tspan></text>
+<text class="lbl small" style="--i:14" x="166.5" y="24" text-anchor="middle">action a<tspan dy="2" font-size="7">k</tspan></text>
+<text class="lbl small" style="--i:14" x="26" y="146.5" text-anchor="middle" transform="rotate(-90 26 146.5)">history h<tspan dy="2" font-size="7">t</tspan></text>
+<g class="cell k0 sc sc-1 sc-2 sc-3 fin pp" style="--i:0"><rect x="73" y="53" width="25" height="25" rx="4"/><text x="85.5" y="69.5" text-anchor="middle">0</text></g>
+<g class="cell k1 sc sc-2 sc-3 fin pp" style="--i:0"><rect x="100" y="53" width="25" height="25" rx="4"/><text x="112.5" y="69.5" text-anchor="middle">1</text></g>
+<g class="cell k2 sc sc-2 sc-3 fin pp" style="--i:0"><rect x="127" y="53" width="25" height="25" rx="4"/><text x="139.5" y="69.5" text-anchor="middle">2</text></g>
+<g class="cell k3 sc sc-2 sc-3 fin pp" style="--i:0"><rect x="154" y="53" width="25" height="25" rx="4"/><text x="166.5" y="69.5" text-anchor="middle">3</text></g>
+<g class="cell k0 sc sc-1 sc-2 sc-3 fin pp" style="--i:1"><rect x="100" y="80" width="25" height="25" rx="4"/><text x="112.5" y="96.5" text-anchor="middle">0</text></g>
+<g class="cell k1 sc sc-2 sc-3 fin pp" style="--i:1"><rect x="127" y="80" width="25" height="25" rx="4"/><text x="139.5" y="96.5" text-anchor="middle">1</text></g>
+<g class="cell k2 sc sc-2 sc-3 fin pp" style="--i:1"><rect x="154" y="80" width="25" height="25" rx="4"/><text x="166.5" y="96.5" text-anchor="middle">2</text></g>
+<g class="cell k3 sc sc-2 sc-3 fin pp" style="--i:1"><rect x="181" y="80" width="25" height="25" rx="4"/><text x="193.5" y="96.5" text-anchor="middle">3</text></g>
+<g class="cell k0 sc sc-1 sc-2 sc-3 fin pp" style="--i:2"><rect x="127" y="107" width="25" height="25" rx="4"/><text x="139.5" y="123.5" text-anchor="middle">0</text></g>
+<g class="cell k1 sc sc-2 sc-3 fin pp" style="--i:2"><rect x="154" y="107" width="25" height="25" rx="4"/><text x="166.5" y="123.5" text-anchor="middle">1</text></g>
+<g class="cell k2 sc sc-2 sc-3 fin pp" style="--i:2"><rect x="181" y="107" width="25" height="25" rx="4"/><text x="193.5" y="123.5" text-anchor="middle">2</text></g>
+<g class="cell k3 sc sc-2 sc-3 fin pp" style="--i:2"><rect x="208" y="107" width="25" height="25" rx="4"/><text x="220.5" y="123.5" text-anchor="middle">3</text></g>
+<g class="cell k0 sc sc-1 sc-2 sc-3 fin pp" style="--i:3"><rect x="154" y="134" width="25" height="25" rx="4"/><text x="166.5" y="150.5" text-anchor="middle">0</text></g>
+<g class="cell k1 sc sc-2 sc-3 fin pp" style="--i:3"><rect x="181" y="134" width="25" height="25" rx="4"/><text x="193.5" y="150.5" text-anchor="middle">1</text></g>
+<g class="cell k2 sc sc-2 sc-3 fin pp" style="--i:3"><rect x="208" y="134" width="25" height="25" rx="4"/><text x="220.5" y="150.5" text-anchor="middle">2</text></g>
+<g class="cell k3 sc sc-2 sc-3 fin pp" style="--i:3"><rect x="235" y="134" width="25" height="25" rx="4"/><text x="247.5" y="150.5" text-anchor="middle">3</text></g>
+<g class="cell k0 sc sc-1 sc-2 sc-3 fin pp" style="--i:4"><rect x="181" y="161" width="25" height="25" rx="4"/><text x="193.5" y="177.5" text-anchor="middle">0</text></g>
+<g class="cell k1 sc sc-2 sc-3 fin pp" style="--i:4"><rect x="208" y="161" width="25" height="25" rx="4"/><text x="220.5" y="177.5" text-anchor="middle">1</text></g>
+<g class="cell k2 sc sc-2 sc-3 fin pp" style="--i:4"><rect x="235" y="161" width="25" height="25" rx="4"/><text x="247.5" y="177.5" text-anchor="middle">2</text></g>
+<g class="cell k0 sc sc-1 sc-2 sc-3 fin pp" style="--i:5"><rect x="208" y="188" width="25" height="25" rx="4"/><text x="220.5" y="204.5" text-anchor="middle">0</text></g>
+<g class="cell k1 sc sc-2 sc-3 fin pp" style="--i:5"><rect x="235" y="188" width="25" height="25" rx="4"/><text x="247.5" y="204.5" text-anchor="middle">1</text></g>
+<g class="cell k0 sc sc-1 sc-2 sc-3 fin pp" style="--i:6"><rect x="235" y="215" width="25" height="25" rx="4"/><text x="247.5" y="231.5" text-anchor="middle">0</text></g>
+<text class="formula sc sc-1 sc-2 sc-3 fin" x="300" y="96">&#8466; = &#8466;<tspan class="sub" dy="4">GRPO</tspan><tspan class="fterm" dy="-4"> + &beta; &#8466;</tspan><tspan class="fterm sub" dy="4">AF</tspan></text>
+<g class="tag-grpo sc sc-1 sc-2 sc-3 fin pp"><rect x="300" y="112" width="10" height="10" rx="2" fill="#C8663A"/><text class="small" x="316" y="121">k = 0 · the current action (GRPO)</text><text class="small mut" x="300" y="136">policy gradient on all rollouts</text></g>
+<g class="tag-af sc sc-2 sc-3 fin pp"><rect x="300" y="150" width="10" height="10" rx="2" fill="#4F7CAC"/><rect x="312" y="150" width="10" height="10" rx="2" fill="#86A7CC"/><rect x="324" y="150" width="10" height="10" rx="2" fill="#BBD0E6"/><text class="small" x="340" y="159">k = 1 … K · forecast actions (AF)</text><text class="small mut" x="300" y="174">one SFT loss, only on successful rollouts, Y(&tau;) = 1</text></g>
+<rect class="col-hl sc sc-3" x="180" y="79" width="27" height="108" rx="5"/>
+<g class="col-note sc sc-3 pp"><text x="300" y="214" font-weight="600" fill="#B8801E">a<tspan dy="3" font-size="8">4</tspan><tspan dy="-3"> is forecast from h</tspan><tspan dy="3" font-size="8">1</tspan><tspan dy="-3">, h</tspan><tspan dy="3" font-size="8">2</tspan><tspan dy="-3">, h</tspan><tspan dy="3" font-size="8">3</tspan><tspan dy="-3">, h</tspan><tspan dy="3" font-size="8">4</tspan></text><text class="small mut" x="300" y="232">K + 1 histories per action: a temporal ensemble</text></g>
+</svg>
+      <div class="anim-bar">
+        <div class="anim-dots" role="group" aria-label="Scenes"></div>
+        <button class="anim-replay" type="button"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg>Replay</button>
+      </div>
+      <figcaption class="anim-caps">
+        <span class="anim-cap" data-for="0"><b>Where does the loss land?</b> Rows are histories <i>h<sub>t</sub></i>, columns are actions. A cell is supervised when the model is asked to produce that action from that history.</span>
+        <span class="anim-cap" data-for="1"><b>GRPO: the diagonal.</b> Each history is scored only on its own next action, <i>k</i> = 0, with the policy-gradient loss on all rollouts.</span>
+        <span class="anim-cap anim-cap-static" data-for="2"><b>CoPE: the band.</b> One extra SFT loss fits the next <i>K</i> actions on successful rollouts, so the diagonal extends to <i>k</i> = 1 &hellip; <i>K</i>. Nothing else changes.</span>
+        <span class="anim-cap" data-for="3"><b>Read by column.</b> Each action is now forecast from <i>K</i> + 1 histories. The shared backbone absorbs this temporal ensemble, so forecasting improves acting.</span>
+      </figcaption>
+    </figure>
+
     <figure>
       <img src="static/images/fig-overview.png"
            alt="Overview of CoPE: one shared backbone trained with the GRPO loss and an action forecasting loss, and the temporal ensemble this induces." />
