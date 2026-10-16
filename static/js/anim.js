@@ -132,9 +132,29 @@
     if (reduced) render(player.scene);
   }
 
+  // Results charts: bars grow and lines draw once, when first scrolled into view.
+  function mountCharts() {
+    var charts = document.querySelectorAll('.chart');
+    if (!charts.length) return;
+    if (!('IntersectionObserver' in root)) {
+      for (var j = 0; j < charts.length; j++) charts[j].classList.add('is-in');
+      return;
+    }
+    var cio = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) {
+          e.target.classList.add('is-in');
+          cio.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.2 });
+    for (var i = 0; i < charts.length; i++) cio.observe(charts[i]);
+  }
+
   function init() {
     var figs = document.querySelectorAll('figure.anim');
     for (var i = 0; i < figs.length; i++) mount(figs[i]);
+    mountCharts();
   }
 
   if (typeof module !== 'undefined' && module.exports) {

@@ -17,6 +17,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="static/css/style.css" />
 <link rel="stylesheet" href="static/css/anim.css" />
+<link rel="stylesheet" href="static/css/charts.css" />
 <script src="static/js/anim.js" defer></script>
 </head>
 
@@ -24,6 +25,7 @@
 
 <header class="hero">
   <div class="wrap">
+    <h1 class="title">Co-Evolving Acting and Forecasting for Language Agents</h1>
     <img src="static/images/cope-banner.png"
          alt="CoPE: Co-Evolving Acting and Forecasting for Language Agents" />
 
@@ -208,6 +210,104 @@
 <section>
   <div class="wrap">
     <h2>Method</h2>
+    <figure class="anim anim-flow" data-durations="1400,2400,2800,2400">
+<svg viewBox="0 0 560 300" role="img" aria-label="How the CoPE loss is computed: the GRPO loss uses the current action of every rollout, the action forecasting loss uses the next K actions of successful rollouts only, and both update one shared LLM.">
+<text class="ttl sc sc-0 fin" x="20" y="26">Two rollouts, one shared backbone</text>
+<text class="ttl sc sc-1" x="20" y="26">ℒ<tspan dy="3.5" font-size="10.5">GRPO</tspan><tspan dy="-3.5">: the current action, all rollouts</tspan></text>
+<text class="ttl sc sc-2" x="20" y="26">ℒ<tspan dy="3.5" font-size="10.5">AF</tspan><tspan dy="-3.5">: forecast the next K actions, successful rollouts only</tspan></text>
+<text class="ttl sc sc-3" x="20" y="26">ℒ = ℒ<tspan dy="3.5" font-size="10.5">GRPO</tspan><tspan dy="-3.5"> + β ℒ</tspan><tspan dy="3.5" font-size="10.5">AF</tspan></text>
+<line class="link" style="--i:0" x1="130" y1="64" x2="144" y2="64"/>
+<line class="link" style="--i:1" x1="168" y1="64" x2="182" y2="64"/>
+<line class="link" style="--i:2" x1="206" y1="64" x2="220" y2="64"/>
+<line class="link" style="--i:3" x1="244" y1="64" x2="258" y2="64"/>
+<line class="link" style="--i:4" x1="282" y1="64" x2="296" y2="64"/>
+<line class="link" style="--i:5" x1="320" y1="64" x2="334" y2="64"/>
+<line class="link" style="--i:6" x1="358" y1="64" x2="372" y2="64"/>
+<line class="link" style="--i:7" x1="396" y1="64" x2="410" y2="64"/>
+<line class="link" style="--i:8" x1="434" y1="64" x2="448" y2="64"/>
+<line class="link" style="--i:9" x1="472" y1="64" x2="486" y2="64"/>
+<line class="link" style="--i:10" x1="510" y1="64" x2="524" y2="64"/>
+<g class="node o-node pp" style="--i:0"><circle cx="118" cy="64" r="11"/><text x="118" y="68" text-anchor="middle">o<tspan dy="3" font-size="8.5">0</tspan></text></g>
+<g class="node a-node pp" style="--i:1"><rect x="145" y="53" width="22" height="22" rx="5"/><text x="156" y="68" text-anchor="middle">a<tspan dy="3" font-size="8.5">0</tspan></text></g>
+<g class="node o-node pp" style="--i:2"><circle cx="194" cy="64" r="11"/><text x="194" y="68" text-anchor="middle">o<tspan dy="3" font-size="8.5">1</tspan></text></g>
+<g class="node a-node pp" style="--i:3"><rect x="221" y="53" width="22" height="22" rx="5"/><text x="232" y="68" text-anchor="middle">a<tspan dy="3" font-size="8.5">1</tspan></text></g>
+<g class="node o-node pp" style="--i:4"><circle cx="270" cy="64" r="11"/><text x="270" y="68" text-anchor="middle">o<tspan dy="3" font-size="8.5">2</tspan></text></g>
+<g class="node a-node pp fl-a2" style="--i:5"><rect x="297" y="53" width="22" height="22" rx="5"/><text x="308" y="68" text-anchor="middle">a<tspan dy="3" font-size="8.5">2</tspan></text></g>
+<g class="node o-node pp" style="--i:6"><circle cx="346" cy="64" r="11"/><text x="346" y="68" text-anchor="middle">o<tspan dy="3" font-size="8.5">3</tspan></text></g>
+<g class="node a-node pp fl-dim" style="--i:7;--k:0"><rect x="373" y="53" width="22" height="22" rx="5"/><text x="384" y="68" text-anchor="middle">a<tspan dy="3" font-size="8.5">3</tspan></text></g>
+<g class="node o-node pp" style="--i:8"><circle cx="422" cy="64" r="11"/><text x="422" y="68" text-anchor="middle">o<tspan dy="3" font-size="8.5">4</tspan></text></g>
+<g class="node a-node pp fl-dim" style="--i:9;--k:1"><rect x="449" y="53" width="22" height="22" rx="5"/><text x="460" y="68" text-anchor="middle">a<tspan dy="3" font-size="8.5">4</tspan></text></g>
+<g class="node o-node pp" style="--i:10"><circle cx="498" cy="64" r="11"/><text x="498" y="68" text-anchor="middle">o<tspan dy="3" font-size="8.5">5</tspan></text></g>
+<g class="node a-node pp fl-dim" style="--i:11;--k:2"><rect x="525" y="53" width="22" height="22" rx="5"/><text x="536" y="68" text-anchor="middle">a<tspan dy="3" font-size="8.5">5</tspan></text></g>
+<line class="link" style="--i:0" x1="130" y1="104" x2="144" y2="104"/>
+<line class="link" style="--i:1" x1="168" y1="104" x2="182" y2="104"/>
+<line class="link" style="--i:2" x1="206" y1="104" x2="220" y2="104"/>
+<line class="link" style="--i:3" x1="244" y1="104" x2="258" y2="104"/>
+<line class="link" style="--i:4" x1="282" y1="104" x2="296" y2="104"/>
+<line class="link" style="--i:5" x1="320" y1="104" x2="334" y2="104"/>
+<line class="link" style="--i:6" x1="358" y1="104" x2="372" y2="104"/>
+<line class="link" style="--i:7" x1="396" y1="104" x2="410" y2="104"/>
+<line class="link" style="--i:8" x1="434" y1="104" x2="448" y2="104"/>
+<line class="link" style="--i:9" x1="472" y1="104" x2="486" y2="104"/>
+<line class="link" style="--i:10" x1="510" y1="104" x2="524" y2="104"/>
+<g class="node o-node pp" style="--i:0"><circle cx="118" cy="104" r="11"/><text x="118" y="108" text-anchor="middle">o<tspan dy="3" font-size="8.5">0</tspan></text></g>
+<g class="node a-node pp" style="--i:1"><rect x="145" y="93" width="22" height="22" rx="5"/><text x="156" y="108" text-anchor="middle">a<tspan dy="3" font-size="8.5">0</tspan></text></g>
+<g class="node o-node pp" style="--i:2"><circle cx="194" cy="104" r="11"/><text x="194" y="108" text-anchor="middle">o<tspan dy="3" font-size="8.5">1</tspan></text></g>
+<g class="node a-node pp" style="--i:3"><rect x="221" y="93" width="22" height="22" rx="5"/><text x="232" y="108" text-anchor="middle">a<tspan dy="3" font-size="8.5">1</tspan></text></g>
+<g class="node o-node pp" style="--i:4"><circle cx="270" cy="104" r="11"/><text x="270" y="108" text-anchor="middle">o<tspan dy="3" font-size="8.5">2</tspan></text></g>
+<g class="node a-node pp fl-a2" style="--i:5"><rect x="297" y="93" width="22" height="22" rx="5"/><text x="308" y="108" text-anchor="middle">a<tspan dy="3" font-size="8.5">2</tspan></text></g>
+<g class="node o-node pp" style="--i:6"><circle cx="346" cy="104" r="11"/><text x="346" y="108" text-anchor="middle">o<tspan dy="3" font-size="8.5">3</tspan></text></g>
+<g class="node a-node pp fl-af" style="--i:7;--k:0"><rect x="373" y="93" width="22" height="22" rx="5"/><text x="384" y="108" text-anchor="middle">a<tspan dy="3" font-size="8.5">3</tspan></text></g>
+<g class="node o-node pp" style="--i:8"><circle cx="422" cy="104" r="11"/><text x="422" y="108" text-anchor="middle">o<tspan dy="3" font-size="8.5">4</tspan></text></g>
+<g class="node a-node pp fl-af" style="--i:9;--k:1"><rect x="449" y="93" width="22" height="22" rx="5"/><text x="460" y="108" text-anchor="middle">a<tspan dy="3" font-size="8.5">4</tspan></text></g>
+<g class="node o-node pp" style="--i:10"><circle cx="498" cy="104" r="11"/><text x="498" y="108" text-anchor="middle">o<tspan dy="3" font-size="8.5">5</tspan></text></g>
+<g class="node a-node pp fl-af" style="--i:11;--k:2"><rect x="525" y="93" width="22" height="22" rx="5"/><text x="536" y="108" text-anchor="middle">a<tspan dy="3" font-size="8.5">5</tspan></text></g>
+<g class="badge pp"><path d="M26,59 l10,10 M36,59 l-10,10" stroke="#8E7B70" stroke-width="2.2" stroke-linecap="round"/><text class="small mut" x="46" y="68">Y(τ) = 0</text></g>
+<g class="badge pp"><path d="M25,104 l4,4 l9,-10" fill="none" stroke="#3F8F5A" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><text class="small" x="46" y="108" fill="#3F8F5A" font-weight="600">Y(τ) = 1</text></g>
+<text class="k0 sc sc-1 sc-2 sc-3 fin" x="308" y="44" text-anchor="middle" font-size="10.5" fill="#C8663A" font-weight="700">k = 0</text>
+<text class="k123 sc sc-2 sc-3 fin" style="--k:0" x="384" y="44" text-anchor="middle" font-size="10.5" fill="#4F7CAC" font-weight="700">k = 1</text>
+<text class="k123 sc sc-2 sc-3 fin" style="--k:1" x="460" y="44" text-anchor="middle" font-size="10.5" fill="#4F7CAC" font-weight="700">k = 2</text>
+<text class="k123 sc sc-2 sc-3 fin" style="--k:2" x="536" y="44" text-anchor="middle" font-size="10.5" fill="#4F7CAC" font-weight="700">k = 3</text>
+<text class="fl-note sc sc-2 sc-3 fin small mut" x="547" y="88" text-anchor="end">a<tspan dy="2.5" font-size="8">3:5</tspan><tspan dy="-2.5"> of a failed rollout: not used</tspan></text>
+<path class="ar ar-grpo drawn sc sc-1 sc-2 sc-3 fin" d="M308,75 V93 M308,115 V148" pathLength="1"/>
+<path class="hd hd-grpo sc sc-1 sc-2 sc-3 fin" d="M308.0,149.0 L304.5,141.0 L311.5,141.0 z" fill="#C8663A"/>
+<path class="ar ar-af drawn sc sc-2 sc-3 fin" style="--k:0" d="M384,115 V148" pathLength="1"/>
+<path class="hd hd-af sc sc-2 sc-3 fin" style="--k:0" d="M384.0,149.0 L380.5,141.0 L387.5,141.0 z" fill="#4F7CAC"/>
+<path class="ar ar-af drawn sc sc-2 sc-3 fin" style="--k:1" d="M460,115 V148" pathLength="1"/>
+<path class="hd hd-af sc sc-2 sc-3 fin" style="--k:1" d="M460.0,149.0 L456.5,141.0 L463.5,141.0 z" fill="#4F7CAC"/>
+<path class="ar ar-af drawn sc sc-2 sc-3 fin" style="--k:2" d="M536,115 V148" pathLength="1"/>
+<path class="hd hd-af sc sc-2 sc-3 fin" style="--k:2" d="M536.0,149.0 L532.5,141.0 L539.5,141.0 z" fill="#4F7CAC"/>
+<g class="box box-pi sc sc-1 sc-2 sc-3 fin pp"><rect x="288" y="150" width="40" height="26" rx="6"/><text x="308" y="167" text-anchor="middle">π<tspan dy="3" font-size="9">θ</tspan></text></g>
+<g class="box box-p sc sc-2 sc-3 fin pp" style="--k:0"><rect x="367" y="150" width="34" height="26" rx="6"/><text x="384" y="167" text-anchor="middle">p<tspan dy="3" font-size="9">θ</tspan></text></g>
+<g class="box box-p sc sc-2 sc-3 fin pp" style="--k:1"><rect x="443" y="150" width="34" height="26" rx="6"/><text x="460" y="167" text-anchor="middle">p<tspan dy="3" font-size="9">θ</tspan></text></g>
+<g class="box box-p sc sc-2 sc-3 fin pp" style="--k:2"><rect x="519" y="150" width="34" height="26" rx="6"/><text x="536" y="167" text-anchor="middle">p<tspan dy="3" font-size="9">θ</tspan></text></g>
+<text class="small mut sc sc-1 sc-2 sc-3 fin" x="282" y="167" text-anchor="end">act a<tspan dy="2.5" font-size="8">2</tspan></text>
+<path class="ar ar-pi drawn sc sc-1 sc-2 sc-3 fin" d="M308,176 L284,204" pathLength="1"/>
+<path class="hd hd-pi sc sc-1 sc-2 sc-3 fin" d="M284.0,205.0 L286.3,196.6 L291.7,200.9 z" fill="#C8663A"/>
+<path class="ar ar-p drawn sc sc-2 sc-3 fin" style="--k:0" d="M384,176 L402,204" pathLength="1"/>
+<path class="hd hd-p sc sc-2 sc-3 fin" style="--k:0" d="M402.0,205.0 L394.9,199.9 L400.9,196.3 z" fill="#4F7CAC"/>
+<path class="ar ar-p drawn sc sc-2 sc-3 fin" style="--k:1" d="M460,176 L412,204" pathLength="1"/>
+<path class="hd hd-p sc sc-2 sc-3 fin" style="--k:1" d="M412.0,205.0 L416.9,197.8 L420.6,203.7 z" fill="#4F7CAC"/>
+<path class="ar ar-p drawn sc sc-2 sc-3 fin" style="--k:2" d="M536,176 L422,204" pathLength="1"/>
+<path class="hd hd-p sc sc-2 sc-3 fin" style="--k:2" d="M422.0,205.0 L428.8,199.6 L430.6,206.3 z" fill="#4F7CAC"/>
+<g class="lossbox box-lg sc sc-1 sc-2 sc-3 fin pp"><rect x="218" y="206" width="104" height="40" rx="7"/><text class="l1" x="270" y="223" text-anchor="middle">ℒ<tspan dy="3" font-size="9.5">GRPO</tspan></text><text class="l2" x="270" y="238" text-anchor="middle">all rollouts</text></g>
+<g class="lossbox box-la sc sc-2 sc-3 fin pp"><rect x="354" y="206" width="116" height="40" rx="7"/><text class="l1" x="412" y="223" text-anchor="middle">ℒ<tspan dy="3" font-size="9.5">AF</tspan></text><text class="l2" x="412" y="238" text-anchor="middle">only Y(τ) = 1</text></g>
+<text class="plus sc sc-3 fin pp" x="338.0" y="231" text-anchor="middle" font-size="15" font-weight="700">+ β</text>
+<path class="ar ar-sum drawn sc sc-3 fin" d="M270,246 V260 M412,246 V260" pathLength="1"/>
+<g class="llm pp"><rect class="llm-bg" x="118" y="262" width="429" height="26" rx="7"/><rect class="llm-hl sc sc-3 fin" x="118" y="262" width="429" height="26" rx="7"/><text x="332.5" y="279" text-anchor="middle">Shared LLM backbone θ   ·   π<tspan dy="2.5" font-size="8.5">θ</tspan><tspan dy="-2.5"> acts,  </tspan>p<tspan dy="2.5" font-size="8.5">θ</tspan><tspan dy="-2.5"> forecasts</tspan></text></g>
+</svg>
+      <div class="anim-bar">
+        <div class="anim-dots" role="group" aria-label="Scenes"></div>
+        <button class="anim-replay" type="button"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg>Replay</button>
+      </div>
+      <figcaption class="anim-caps">
+        <span class="anim-cap" data-for="0"><b>Two rollouts, one backbone.</b> Each rollout is scored once at the end: <i>Y</i>(&tau;) = 0 for failure, 1 for success. The same LLM produces every action.</span>
+        <span class="anim-cap" data-for="1"><b>&#8466;<sub>GRPO</sub> on all rollouts.</b> The policy &pi;<sub>&theta;</sub> is updated on the current action <i>a<sub>t</sub></i> of every rollout, with the group-relative advantage from <i>Y</i>.</span>
+        <span class="anim-cap" data-for="2"><b>&#8466;<sub>AF</sub> on successful rollouts only.</b> From the same history, the backbone also forecasts <i>a</i><sub>t+1</sub>, <i>a</i><sub>t+2</sub>, <i>a</i><sub>t+3</sub> and is fit to them by supervised learning. Failed rollouts contribute nothing here.</span>
+        <span class="anim-cap anim-cap-static" data-for="3"><b>&#8466; = &#8466;<sub>GRPO</sub> + &beta; &#8466;<sub>AF</sub>.</b> Both losses update the same parameters, so acting and forecasting share every weight of the backbone.</span>
+      </figcaption>
+    </figure>
+
     <figure class="anim anim-loss" data-durations="1100,1700,2400,2600">
 <svg viewBox="0 0 560 270" role="img" aria-label="Loss layout on a history-by-action grid: GRPO supervises the diagonal, CoPE adds an action forecasting loss that extends the diagonal into a band of width K.">
 <g class="board"><rect x="72" y="52" width="189" height="189" fill="#fff"/><line class="gl" x1="72" y1="52" x2="72" y2="241"/><line class="gl" x1="72" y1="52" x2="261" y2="52"/><line class="gl" x1="99" y1="52" x2="99" y2="241"/><line class="gl" x1="72" y1="79" x2="261" y2="79"/><line class="gl" x1="126" y1="52" x2="126" y2="241"/><line class="gl" x1="72" y1="106" x2="261" y2="106"/><line class="gl" x1="153" y1="52" x2="153" y2="241"/><line class="gl" x1="72" y1="133" x2="261" y2="133"/><line class="gl" x1="180" y1="52" x2="180" y2="241"/><line class="gl" x1="72" y1="160" x2="261" y2="160"/><line class="gl" x1="207" y1="52" x2="207" y2="241"/><line class="gl" x1="72" y1="187" x2="261" y2="187"/><line class="gl" x1="234" y1="52" x2="234" y2="241"/><line class="gl" x1="72" y1="214" x2="261" y2="214"/><line class="gl" x1="261" y1="52" x2="261" y2="241"/><line class="gl" x1="72" y1="241" x2="261" y2="241"/></g>
@@ -267,18 +367,6 @@
       </figcaption>
     </figure>
 
-    <figure>
-      <img src="static/images/fig-overview.png"
-           alt="Overview of CoPE: one shared backbone trained with the GRPO loss and an action forecasting loss, and the temporal ensemble this induces." />
-      <figcaption>
-        <b>Overview of CoPE.</b> (i) Joint training of acting and forecasting. One LLM
-        backbone is shared by both, and &#8466;<sub>AF</sub> fits the successful action chunk
-        <i>a</i><sub>t:t+K</sub>. (ii) Co-evolution of acting and forecasting. Acting helps
-        forecasting via trajectory collection, and forecasting helps acting via implicit
-        temporal ensembling.
-      </figcaption>
-    </figure>
-
     <h3>Acting helps forecasting</h3>
     <p>
       GRPO supervises each history <i>h<sub>t</sub></i> with its single-step marginal only —
@@ -305,7 +393,289 @@
   <div class="wrap">
     <h2>Results</h2>
 
-    <div class="scroll">
+    <div class="results">
+<figure class="chart chart-bars" style="--cols:3;--max:100;--ticks:4">
+  <figcaption class="chart-cap"><b>Simulated agent tasks.</b> Success rate (%) on ALFWorld (all subtasks), WebShop and ScienceWorld. All RL methods use Qwen2.5-7B-Instruct.</figcaption>
+  <div class="bars">
+    <div class="bars-head"><span></span><span>ALFWorld</span><span>WebShop</span><span>ScienceWorld</span></div>
+    <div class="bars-group">Agentic prompting</div>
+    <div class="bars-row" style="--r:0"><span class="bars-label">Gemini-2.5-flash-lite</span><span class="bar" data-col="ALFWorld" title="Gemini-2.5-flash-lite · ALFWorld: 46.0"><i class="track"></i><i class="fill" style="--v:46.0"></i><b>46.0</b></span><span class="bar" data-col="WebShop" title="Gemini-2.5-flash-lite · WebShop: 6.5"><i class="track"></i><i class="fill" style="--v:6.5"></i><b>6.5</b></span><span class="bar" data-col="ScienceWorld" title="Gemini-2.5-flash-lite · ScienceWorld: 15.0"><i class="track"></i><i class="fill" style="--v:15.0"></i><b>15.0</b></span></div>
+    <div class="bars-row" style="--r:1"><span class="bars-label">GPT-5-mini</span><span class="bar" data-col="ALFWorld" title="GPT-5-mini · ALFWorld: 52.0"><i class="track"></i><i class="fill" style="--v:52.0"></i><b>52.0</b></span><span class="bar" data-col="WebShop" title="GPT-5-mini · WebShop: 7.0"><i class="track"></i><i class="fill" style="--v:7.0"></i><b>7.0</b></span><span class="bar" data-col="ScienceWorld" title="GPT-5-mini · ScienceWorld: 43.5"><i class="track"></i><i class="fill" style="--v:43.5"></i><b>43.5</b></span></div>
+    <div class="bars-row" style="--r:2"><span class="bars-label">GPT-5.5</span><span class="bar" data-col="ALFWorld" title="GPT-5.5 · ALFWorld: 93.5"><i class="track"></i><i class="fill" style="--v:93.5"></i><b>93.5</b></span><span class="bar" data-col="WebShop" title="GPT-5.5 · WebShop: 56.5"><i class="track"></i><i class="fill" style="--v:56.5"></i><b>56.5</b></span><span class="bar" data-col="ScienceWorld" title="GPT-5.5 · ScienceWorld: 79.0"><i class="track"></i><i class="fill" style="--v:79.0"></i><b>79.0</b></span></div>
+    <div class="bars-row" style="--r:3"><span class="bars-label">Qwen2.5-7B</span><span class="bar" data-col="ALFWorld" title="Qwen2.5-7B · ALFWorld: 34.0"><i class="track"></i><i class="fill" style="--v:34.0"></i><b>34.0</b></span><span class="bar" data-col="WebShop" title="Qwen2.5-7B · WebShop: 2.5"><i class="track"></i><i class="fill" style="--v:2.5"></i><b>2.5</b></span><span class="bar" data-col="ScienceWorld" title="Qwen2.5-7B · ScienceWorld: 2.5"><i class="track"></i><i class="fill" style="--v:2.5"></i><b>2.5</b></span></div>
+    <div class="bars-row" style="--r:4"><span class="bars-label">Qwen2.5-7B + Reflexion</span><span class="bar" data-col="ALFWorld" title="Qwen2.5-7B + Reflexion · ALFWorld: 54.0"><i class="track"></i><i class="fill" style="--v:54.0"></i><b>54.0</b></span><span class="bar" data-col="WebShop" title="Qwen2.5-7B + Reflexion · WebShop: 4.0"><i class="track"></i><i class="fill" style="--v:4.0"></i><b>4.0</b></span><span class="bar" data-col="ScienceWorld" title="Qwen2.5-7B + Reflexion · ScienceWorld: 6.0"><i class="track"></i><i class="fill" style="--v:6.0"></i><b>6.0</b></span></div>
+    <div class="bars-group">RL methods w/o auxiliary loss</div>
+    <div class="bars-row" style="--r:5"><span class="bars-label">RFT</span><span class="bar" data-col="ALFWorld" title="RFT · ALFWorld: 77.0"><i class="track"></i><i class="fill" style="--v:77.0"></i><b>77.0</b></span><span class="bar" data-col="WebShop" title="RFT · WebShop: 16.0"><i class="track"></i><i class="fill" style="--v:16.0"></i><b>16.0</b></span><span class="bar" data-col="ScienceWorld" title="RFT · ScienceWorld: 4.5"><i class="track"></i><i class="fill" style="--v:4.5"></i><b>4.5</b></span></div>
+    <div class="bars-row is-ref" style="--r:6"><span class="bars-label">GRPO</span><span class="bar" data-col="ALFWorld" title="GRPO · ALFWorld: 90.5"><i class="track"></i><i class="fill" style="--v:90.5"></i><b>90.5</b></span><span class="bar" data-col="WebShop" title="GRPO · WebShop: 64.5"><i class="track"></i><i class="fill" style="--v:64.5"></i><b>64.5</b></span><span class="bar" data-col="ScienceWorld" title="GRPO · ScienceWorld: 64.5"><i class="track"></i><i class="fill" style="--v:64.5"></i><b>64.5</b></span></div>
+    <div class="bars-row" style="--r:7"><span class="bars-label">GRPO + EMPG</span><span class="bar" data-col="ALFWorld" title="GRPO + EMPG · ALFWorld: 89.5"><i class="track"></i><i class="fill" style="--v:89.5"></i><b>89.5</b></span><span class="bar" data-col="WebShop" title="GRPO + EMPG · WebShop: 67.5"><i class="track"></i><i class="fill" style="--v:67.5"></i><b>67.5</b></span><span class="bar" data-col="ScienceWorld" title="GRPO + EMPG · ScienceWorld: 46.5"><i class="track"></i><i class="fill" style="--v:46.5"></i><b>46.5</b></span></div>
+    <div class="bars-group">RL methods w/ auxiliary loss</div>
+    <div class="bars-row" style="--r:8"><span class="bars-label">RWML + GRPO</span><span class="bar" data-col="ALFWorld" title="RWML + GRPO · ALFWorld: 92.0"><i class="track"></i><i class="fill" style="--v:92.0"></i><b>92.0</b></span><span class="bar" data-col="WebShop" title="RWML + GRPO · WebShop: 64.0"><i class="track"></i><i class="fill" style="--v:64.0"></i><b>64.0</b></span><span class="bar" data-col="ScienceWorld" title="RWML + GRPO · ScienceWorld: 65.0"><i class="track"></i><i class="fill" style="--v:65.0"></i><b>65.0</b></span></div>
+    <div class="bars-row" style="--r:9"><span class="bars-label">ECHO</span><span class="bar" data-col="ALFWorld" title="ECHO · ALFWorld: 94.5"><i class="track"></i><i class="fill" style="--v:94.5"></i><b>94.5</b></span><span class="bar" data-col="WebShop" title="ECHO · WebShop: 71.5"><i class="track"></i><i class="fill" style="--v:71.5"></i><b>71.5</b></span><span class="bar" data-col="ScienceWorld" title="ECHO · ScienceWorld: 67.5"><i class="track"></i><i class="fill" style="--v:67.5"></i><b>67.5</b></span></div>
+    <div class="bars-row is-ours" style="--r:10"><span class="bars-label">CoPE</span><span class="bar" data-col="ALFWorld" title="CoPE · ALFWorld: 95.5"><i class="track"></i><i class="fill" style="--v:95.5"></i><b>95.5</b></span><span class="bar" data-col="WebShop" title="CoPE · WebShop: 77.0"><i class="track"></i><i class="fill" style="--v:77.0"></i><b>77.0</b></span><span class="bar" data-col="ScienceWorld" title="CoPE · ScienceWorld: 72.5"><i class="track"></i><i class="fill" style="--v:72.5"></i><b>72.5</b></span></div>
+    <div class="bars-axis"><span></span><span class="axis"><em style="left:0.000%">0</em><em style="left:25.000%">25</em><em style="left:50.000%">50</em><em style="left:75.000%">75</em><em style="left:100.000%">100</em></span><span class="axis"><em style="left:0.000%">0</em><em style="left:25.000%">25</em><em style="left:50.000%">50</em><em style="left:75.000%">75</em><em style="left:100.000%">100</em></span><span class="axis"><em style="left:0.000%">0</em><em style="left:25.000%">25</em><em style="left:50.000%">50</em><em style="left:75.000%">75</em><em style="left:100.000%">100</em></span></div>
+  </div>
+  <details class="chart-table"><summary>Table view</summary><div class="scroll">
+      <table>
+        <caption>
+          <b>Simulated agent tasks.</b> ALFWorld reports success rate (%) per subtask and
+          overall; WebShop and ScienceWorld report average score and success rate (%).
+          All RL methods use Qwen2.5-7B-Instruct.
+        </caption>
+        <thead>
+          <tr>
+            <th rowspan="2">Method</th>
+            <th colspan="7">ALFWorld</th>
+            <th colspan="2">WebShop</th>
+            <th colspan="2">ScienceWorld</th>
+          </tr>
+          <tr>
+            <th>Pick</th><th>Look</th><th>Clean</th><th>Heat</th><th>Cool</th><th>Pick2</th><th>All</th>
+            <th>Score</th><th>Succ.</th>
+            <th>Score</th><th>Succ.</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="group"><td colspan="12">Agentic prompting</td></tr>
+          <tr><td>Gemini-2.5-flash-lite</td><td>82.6</td><td>36.8</td><td>37.8</td><td>20.0</td><td>21.4</td><td>48.9</td><td>46.0</td><td>7.8</td><td>6.5</td><td>13.9</td><td>15.0</td></tr>
+          <tr><td>GPT-5-mini</td><td>82.6</td><td>47.4</td><td>27.0</td><td>36.0</td><td>14.3</td><td>75.6</td><td>52.0</td><td>11.7</td><td>7.0</td><td>40.1</td><td>43.5</td></tr>
+          <tr><td>GPT-5.5</td><td>97.8</td><td>100.0</td><td>91.9</td><td>88.0</td><td>89.3</td><td>93.3</td><td>93.5</td><td>66.1</td><td>56.5</td><td>66.8</td><td>79.0</td></tr>
+          <tr><td>Qwen2.5-7B</td><td>69.6</td><td>31.6</td><td>29.7</td><td>36.0</td><td>17.9</td><td>11.1</td><td>34.0</td><td>25.3</td><td>2.5</td><td>&minus;13.3</td><td>2.5</td></tr>
+          <tr><td>Qwen2.5-7B + Reflexion</td><td>84.8</td><td>26.3</td><td>51.4</td><td>44.0</td><td>32.1</td><td>55.6</td><td>54.0</td><td>21.9</td><td>4.0</td><td>&minus;3.7</td><td>6.0</td></tr>
+
+          <tr class="group"><td colspan="12">RL methods w/o auxiliary loss</td></tr>
+          <tr><td>RFT</td><td>91.3</td><td>73.7</td><td>73.0</td><td>84.0</td><td>64.3</td><td>71.1</td><td>77.0</td><td>51.4</td><td>16.0</td><td>&minus;11.0</td><td>4.5</td></tr>
+          <tr><td>GRPO</td><td>100.0</td><td>73.7</td><td>94.6</td><td>84.0</td><td>89.3</td><td>88.9</td><td>90.5</td><td>84.1</td><td>64.5</td><td>52.8</td><td>64.5</td></tr>
+          <tr><td>GRPO + EMPG</td><td>97.8</td><td>57.9</td><td>89.2</td><td>88.0</td><td>89.3</td><td>95.6</td><td>89.5</td><td>84.3</td><td>67.5</td><td>48.2</td><td>46.5</td></tr>
+
+          <tr class="group"><td colspan="12">RL methods w/ auxiliary loss</td></tr>
+          <tr><td>RWML + GRPO</td><td>100.0</td><td>89.5</td><td>89.2</td><td>92.0</td><td>96.4</td><td>84.4</td><td>92.0</td><td>81.2</td><td>64.0</td><td>39.4</td><td>65.0</td></tr>
+          <tr><td>ECHO</td><td>97.8</td><td>89.5</td><td>91.9</td><td>96.0</td><td>96.4</td><td>93.3</td><td>94.5</td><td>85.0</td><td>71.5</td><td>44.8</td><td>67.5</td></tr>
+          <tr class="ours"><td>CoPE</td><td>100.0</td><td>100.0</td><td>97.3</td><td>96.0</td><td>89.3</td><td>91.1</td><td>95.5</td><td>89.4</td><td>77.0</td><td>53.4</td><td>72.5</td></tr>
+        </tbody>
+      </table>
+    </div></details>
+</figure>
+
+    <h3>Realistic applications</h3>
+
+    <div class="chart-row chart-row-apps">
+<figure class="chart chart-bars" style="--cols:1;--max:50;--ticks:2;--label:120px">
+  <figcaption class="chart-cap"><b>&tau;<sup>2</sup>-bench.</b> Overall Avg@4 success rate (%) with Qwen2.5-7B-Instruct.</figcaption>
+  <div class="bars">
+    <div class="bars-head"><span></span><span>Overall</span></div>
+    <div class="bars-group">Agentic prompting</div>
+    <div class="bars-row" style="--r:0"><span class="bars-label">Qwen2.5</span><span class="bar" data-col="Overall" title="Qwen2.5 · Overall: 11.7"><i class="track"></i><i class="fill" style="--v:11.7"></i><b>11.7</b></span></div>
+    <div class="bars-row" style="--r:1"><span class="bars-label">ReAct</span><span class="bar" data-col="Overall" title="ReAct · Overall: 12.3"><i class="track"></i><i class="fill" style="--v:12.3"></i><b>12.3</b></span></div>
+    <div class="bars-group">Published RL results</div>
+    <div class="bars-row" style="--r:2"><span class="bars-label">RAGEN</span><span class="bar" data-col="Overall" title="RAGEN · Overall: 16.7"><i class="track"></i><i class="fill" style="--v:16.7"></i><b>16.7</b></span></div>
+    <div class="bars-row" style="--r:3"><span class="bars-label">Search-R1</span><span class="bar" data-col="Overall" title="Search-R1 · Overall: 13.5"><i class="track"></i><i class="fill" style="--v:13.5"></i><b>13.5</b></span></div>
+    <div class="bars-row" style="--r:4"><span class="bars-label">UserRL</span><span class="bar" data-col="Overall" title="UserRL · Overall: 12.7"><i class="track"></i><i class="fill" style="--v:12.7"></i><b>12.7</b></span></div>
+    <div class="bars-row" style="--r:5"><span class="bars-label">InfoPO</span><span class="bar" data-col="Overall" title="InfoPO · Overall: 17.7"><i class="track"></i><i class="fill" style="--v:17.7"></i><b>17.7</b></span></div>
+    <div class="bars-group">Our controlled runs</div>
+    <div class="bars-row is-ref" style="--r:6"><span class="bars-label">GRPO (ours)</span><span class="bar" data-col="Overall" title="GRPO (ours) · Overall: 27.5"><i class="track"></i><i class="fill" style="--v:27.5"></i><b>27.5</b></span></div>
+    <div class="bars-row is-ours" style="--r:7"><span class="bars-label">CoPE</span><span class="bar" data-col="Overall" title="CoPE · Overall: 28.7"><i class="track"></i><i class="fill" style="--v:28.7"></i><b>28.7</b></span></div>
+    <div class="bars-axis"><span></span><span class="axis"><em style="left:0.000%">0</em><em style="left:50.000%">25</em><em style="left:100.000%">50</em></span></div>
+  </div>
+  <details class="chart-table"><summary>Table view</summary><div class="scroll">
+      <table>
+        <caption>
+          <b>&tau;<sup>2</sup>-bench.</b> Avg@4 task success rate with Qwen2.5-7B-Instruct.
+        </caption>
+        <thead>
+          <tr><th>Method</th><th>Telecom</th><th>Retail</th><th>Airline</th><th>Overall</th></tr>
+        </thead>
+        <tbody>
+          <tr class="group"><td colspan="5">Agentic prompting</td></tr>
+          <tr><td>Qwen2.5</td><td>14.4</td><td>13.1</td><td>7.5</td><td>11.7</td></tr>
+          <tr><td>ReAct</td><td>13.1</td><td>13.8</td><td>10.0</td><td>12.3</td></tr>
+          <tr class="group"><td colspan="5">Published RL results</td></tr>
+          <tr><td>RAGEN</td><td>17.5</td><td>17.5</td><td>15.0</td><td>16.7</td></tr>
+          <tr><td>Search-R1</td><td>15.6</td><td>15.0</td><td>10.0</td><td>13.5</td></tr>
+          <tr><td>UserRL</td><td>13.8</td><td>16.9</td><td>7.5</td><td>12.7</td></tr>
+          <tr><td>InfoPO</td><td>18.1</td><td>18.8</td><td>16.3</td><td>17.7</td></tr>
+          <tr class="group"><td colspan="5">Our controlled runs</td></tr>
+          <tr><td>GRPO (ours)</td><td>38.8</td><td>17.5</td><td>26.2</td><td>27.5</td></tr>
+          <tr class="ours"><td>CoPE</td><td>40.6</td><td>29.4</td><td>16.2</td><td>28.7</td></tr>
+        </tbody>
+      </table>
+    </div></details>
+</figure>
+<figure class="chart chart-bars" style="--cols:2;--max:60;--ticks:3;--label:120px">
+  <figcaption class="chart-cap"><b>AppWorld.</b> Success rate (%) with Qwen2.5-14B-Instruct. <sup>&dagger;</sup> as reported in G2PO.</figcaption>
+  <div class="bars">
+    <div class="bars-head"><span></span><span>Normal</span><span>Challenge</span></div>
+    <div class="bars-group">Agentic prompting</div>
+    <div class="bars-row" style="--r:0"><span class="bars-label">Qwen2.5</span><span class="bar" data-col="Normal" title="Qwen2.5 · Normal: 1.2"><i class="track"></i><i class="fill" style="--v:1.2"></i><b>1.2</b></span><span class="bar" data-col="Challenge" title="Qwen2.5 · Challenge: 0.7"><i class="track"></i><i class="fill" style="--v:0.7"></i><b>0.7</b></span></div>
+    <div class="bars-row" style="--r:1"><span class="bars-label">ReAct</span><span class="bar" data-col="Normal" title="ReAct · Normal: 10.7"><i class="track"></i><i class="fill" style="--v:10.7"></i><b>10.7</b></span><span class="bar" data-col="Challenge" title="ReAct · Challenge: 2.6"><i class="track"></i><i class="fill" style="--v:2.6"></i><b>2.6</b></span></div>
+    <div class="bars-group">Published RL results</div>
+    <div class="bars-row" style="--r:2"><span class="bars-label">PPO†</span><span class="bar" data-col="Normal" title="PPO† · Normal: 19.1"><i class="track"></i><i class="fill" style="--v:19.1"></i><b>19.1</b></span><span class="bar is-na" data-col="Challenge"><i class="track"></i><b>—</b></span></div>
+    <div class="bars-row" style="--r:3"><span class="bars-label">RLOO†</span><span class="bar" data-col="Normal" title="RLOO† · Normal: 24.8"><i class="track"></i><i class="fill" style="--v:24.8"></i><b>24.8</b></span><span class="bar is-na" data-col="Challenge"><i class="track"></i><b>—</b></span></div>
+    <div class="bars-row" style="--r:4"><span class="bars-label">GiGPO†</span><span class="bar" data-col="Normal" title="GiGPO† · Normal: 25.7"><i class="track"></i><i class="fill" style="--v:25.7"></i><b>25.7</b></span><span class="bar is-na" data-col="Challenge"><i class="track"></i><b>—</b></span></div>
+    <div class="bars-row" style="--r:5"><span class="bars-label">GRPO†</span><span class="bar" data-col="Normal" title="GRPO† · Normal: 24.8"><i class="track"></i><i class="fill" style="--v:24.8"></i><b>24.8</b></span><span class="bar is-na" data-col="Challenge"><i class="track"></i><b>—</b></span></div>
+    <div class="bars-group">Our controlled runs</div>
+    <div class="bars-row is-ref" style="--r:6"><span class="bars-label">GRPO (ours)</span><span class="bar" data-col="Normal" title="GRPO (ours) · Normal: 41.7"><i class="track"></i><i class="fill" style="--v:41.7"></i><b>41.7</b></span><span class="bar" data-col="Challenge" title="GRPO (ours) · Challenge: 18.7"><i class="track"></i><i class="fill" style="--v:18.7"></i><b>18.7</b></span></div>
+    <div class="bars-row is-ours" style="--r:7"><span class="bars-label">CoPE</span><span class="bar" data-col="Normal" title="CoPE · Normal: 55.4"><i class="track"></i><i class="fill" style="--v:55.4"></i><b>55.4</b></span><span class="bar" data-col="Challenge" title="CoPE · Challenge: 22.5"><i class="track"></i><i class="fill" style="--v:22.5"></i><b>22.5</b></span></div>
+    <div class="bars-axis"><span></span><span class="axis"><em style="left:0.000%">0</em><em style="left:33.333%">20</em><em style="left:66.667%">40</em><em style="left:100.000%">60</em></span><span class="axis"><em style="left:0.000%">0</em><em style="left:33.333%">20</em><em style="left:66.667%">40</em><em style="left:100.000%">60</em></span></div>
+  </div>
+  <details class="chart-table"><summary>Table view</summary><div class="scroll">
+      <table>
+        <caption>
+          <b>AppWorld.</b> Success rate (%) with Qwen2.5-14B-Instruct.
+          <sup>&dagger;</sup> marks results reported in G2PO.
+        </caption>
+        <thead>
+          <tr><th>Method</th><th>Normal</th><th>Challenge</th></tr>
+        </thead>
+        <tbody>
+          <tr class="group"><td colspan="3">Agentic prompting</td></tr>
+          <tr><td>Qwen2.5</td><td>1.2</td><td>0.7</td></tr>
+          <tr><td>ReAct</td><td>10.7</td><td>2.6</td></tr>
+          <tr class="group"><td colspan="3">Published RL results</td></tr>
+          <tr><td>PPO<sup>&dagger;</sup></td><td>19.1</td><td>&mdash;</td></tr>
+          <tr><td>RLOO<sup>&dagger;</sup></td><td>24.8</td><td>&mdash;</td></tr>
+          <tr><td>GiGPO<sup>&dagger;</sup></td><td>25.7</td><td>&mdash;</td></tr>
+          <tr><td>GRPO<sup>&dagger;</sup></td><td>24.8</td><td>&mdash;</td></tr>
+          <tr class="group"><td colspan="3">Our controlled runs</td></tr>
+          <tr><td>GRPO (ours)</td><td>41.7</td><td>18.7</td></tr>
+          <tr class="ours"><td>CoPE</td><td>55.4</td><td>22.5</td></tr>
+        </tbody>
+      </table>
+    </div></details>
+</figure>
+    </div>
+
+    <h3>Where the gains come from</h3>
+
+<figure class="chart chart-lines">
+  <figcaption class="chart-cap"><b>Subtasks and domains.</b> Per-subtask success rate (%) for the RL methods with auxiliary targets on ALFWorld, and per-domain success rate on &tau;<sup>2</sup>-bench.</figcaption>
+  <div class="chart-row">
+    <div class="chart-panel">
+<div class="legend"><span><i style="--c:#C8663A"></i>CoPE</span><span><i style="--c:#2F6FC4"></i>GRPO</span><span><i style="--c:#B8801E"></i>ECHO</span><span><i style="--c:#3F8F5A"></i>RWML + GRPO</span></div>
+<svg viewBox="0 0 470 300" role="img" aria-label="ALFWorld subtasks: CoPE, GRPO, ECHO, RWML + GRPO.">
+<text class="ttl" x="70" y="24">ALFWorld subtasks</text>
+<line class="grid" x1="70" y1="240.0" x2="380" y2="240.0"/>
+<text class="tick" x="62" y="244.0" text-anchor="end">60</text>
+<line class="grid" x1="70" y1="190.0" x2="380" y2="190.0"/>
+<text class="tick" x="62" y="194.0" text-anchor="end">70</text>
+<line class="grid" x1="70" y1="140.0" x2="380" y2="140.0"/>
+<text class="tick" x="62" y="144.0" text-anchor="end">80</text>
+<line class="grid" x1="70" y1="90.0" x2="380" y2="90.0"/>
+<text class="tick" x="62" y="94.0" text-anchor="end">90</text>
+<line class="grid" x1="70" y1="40.0" x2="380" y2="40.0"/>
+<text class="tick" x="62" y="44.0" text-anchor="end">100</text>
+<line class="axis" x1="70" y1="240" x2="380" y2="240"/>
+<text class="tick" x="70.0" y="260" text-anchor="middle">Pick</text>
+<text class="tick" x="132.0" y="260" text-anchor="middle">Look</text>
+<text class="tick" x="194.0" y="260" text-anchor="middle">Clean</text>
+<text class="tick" x="256.0" y="260" text-anchor="middle">Heat</text>
+<text class="tick" x="318.0" y="260" text-anchor="middle">Cool</text>
+<text class="tick" x="380.0" y="260" text-anchor="middle">Pick2</text>
+<text class="small mut" x="380" y="24" text-anchor="end">success rate (%)</text>
+<g class="series" style="--i:0">
+<path class="line" d="M70.0,40.0 L132.0,40.0 L194.0,53.5 L256.0,60.0 L318.0,93.5 L380.0,84.5" stroke="#C8663A" pathLength="1"/>
+<circle class="pt" cx="70.0" cy="40.0" r="4.5" fill="#C8663A"><title>CoPE · Pick: 100.0</title></circle>
+<circle class="pt" cx="132.0" cy="40.0" r="4.5" fill="#C8663A"><title>CoPE · Look: 100.0</title></circle>
+<circle class="pt" cx="194.0" cy="53.5" r="4.5" fill="#C8663A"><title>CoPE · Clean: 97.3</title></circle>
+<circle class="pt" cx="256.0" cy="60.0" r="4.5" fill="#C8663A"><title>CoPE · Heat: 96.0</title></circle>
+<circle class="pt" cx="318.0" cy="93.5" r="4.5" fill="#C8663A"><title>CoPE · Cool: 89.3</title></circle>
+<circle class="pt" cx="380.0" cy="84.5" r="4.5" fill="#C8663A"><title>CoPE · Pick2: 91.1</title></circle>
+<line class="leader" x1="386.0" y1="84.5" x2="394.0" y2="87.5" stroke="#C8663A"/>
+<text class="end" x="398" y="91.5">CoPE</text>
+</g>
+<g class="series" style="--i:1">
+<path class="line" d="M70.0,40.0 L132.0,171.5 L194.0,67.0 L256.0,120.0 L318.0,93.5 L380.0,95.5" stroke="#2F6FC4" pathLength="1"/>
+<circle class="pt" cx="70.0" cy="40.0" r="4.5" fill="#2F6FC4"><title>GRPO · Pick: 100.0</title></circle>
+<circle class="pt" cx="132.0" cy="171.5" r="4.5" fill="#2F6FC4"><title>GRPO · Look: 73.7</title></circle>
+<circle class="pt" cx="194.0" cy="67.0" r="4.5" fill="#2F6FC4"><title>GRPO · Clean: 94.6</title></circle>
+<circle class="pt" cx="256.0" cy="120.0" r="4.5" fill="#2F6FC4"><title>GRPO · Heat: 84.0</title></circle>
+<circle class="pt" cx="318.0" cy="93.5" r="4.5" fill="#2F6FC4"><title>GRPO · Cool: 89.3</title></circle>
+<circle class="pt" cx="380.0" cy="95.5" r="4.5" fill="#2F6FC4"><title>GRPO · Pick2: 88.9</title></circle>
+<line class="leader" x1="386.0" y1="95.5" x2="394.0" y2="101.5" stroke="#2F6FC4"/>
+<text class="end" x="398" y="105.5">GRPO</text>
+</g>
+<g class="series" style="--i:2">
+<path class="line" d="M70.0,51.0 L132.0,92.5 L194.0,80.5 L256.0,60.0 L318.0,58.0 L380.0,73.5" stroke="#B8801E" pathLength="1"/>
+<circle class="pt" cx="70.0" cy="51.0" r="4.5" fill="#B8801E"><title>ECHO · Pick: 97.8</title></circle>
+<circle class="pt" cx="132.0" cy="92.5" r="4.5" fill="#B8801E"><title>ECHO · Look: 89.5</title></circle>
+<circle class="pt" cx="194.0" cy="80.5" r="4.5" fill="#B8801E"><title>ECHO · Clean: 91.9</title></circle>
+<circle class="pt" cx="256.0" cy="60.0" r="4.5" fill="#B8801E"><title>ECHO · Heat: 96.0</title></circle>
+<circle class="pt" cx="318.0" cy="58.0" r="4.5" fill="#B8801E"><title>ECHO · Cool: 96.4</title></circle>
+<circle class="pt" cx="380.0" cy="73.5" r="4.5" fill="#B8801E"><title>ECHO · Pick2: 93.3</title></circle>
+<text class="end" x="398" y="77.5">ECHO</text>
+</g>
+<g class="series" style="--i:3">
+<path class="line" d="M70.0,40.0 L132.0,92.5 L194.0,94.0 L256.0,80.0 L318.0,58.0 L380.0,118.0" stroke="#3F8F5A" pathLength="1"/>
+<circle class="pt" cx="70.0" cy="40.0" r="4.5" fill="#3F8F5A"><title>RWML + GRPO · Pick: 100.0</title></circle>
+<circle class="pt" cx="132.0" cy="92.5" r="4.5" fill="#3F8F5A"><title>RWML + GRPO · Look: 89.5</title></circle>
+<circle class="pt" cx="194.0" cy="94.0" r="4.5" fill="#3F8F5A"><title>RWML + GRPO · Clean: 89.2</title></circle>
+<circle class="pt" cx="256.0" cy="80.0" r="4.5" fill="#3F8F5A"><title>RWML + GRPO · Heat: 92.0</title></circle>
+<circle class="pt" cx="318.0" cy="58.0" r="4.5" fill="#3F8F5A"><title>RWML + GRPO · Cool: 96.4</title></circle>
+<circle class="pt" cx="380.0" cy="118.0" r="4.5" fill="#3F8F5A"><title>RWML + GRPO · Pick2: 84.4</title></circle>
+<text class="end" x="398" y="122.0">RWML + GRPO</text>
+</g>
+</svg>
+    </div>
+    <div class="chart-panel">
+<div class="legend"><span><i style="--c:#C8663A"></i>CoPE</span><span><i style="--c:#2F6FC4"></i>GRPO (ours)</span><span><i style="--c:#B8801E"></i>InfoPO</span><span><i style="--c:#3F8F5A"></i>RAGEN</span></div>
+<svg viewBox="0 0 470 300" role="img" aria-label="τ²-bench domains: CoPE, GRPO (ours), InfoPO, RAGEN.">
+<text class="ttl" x="70" y="24">τ²-bench domains</text>
+<line class="grid" x1="70" y1="240.0" x2="380" y2="240.0"/>
+<text class="tick" x="62" y="244.0" text-anchor="end">0</text>
+<line class="grid" x1="70" y1="173.3" x2="380" y2="173.3"/>
+<text class="tick" x="62" y="177.3" text-anchor="end">15</text>
+<line class="grid" x1="70" y1="106.7" x2="380" y2="106.7"/>
+<text class="tick" x="62" y="110.7" text-anchor="end">30</text>
+<line class="grid" x1="70" y1="40.0" x2="380" y2="40.0"/>
+<text class="tick" x="62" y="44.0" text-anchor="end">45</text>
+<line class="axis" x1="70" y1="240" x2="380" y2="240"/>
+<text class="tick" x="70.0" y="260" text-anchor="middle">Telecom</text>
+<text class="tick" x="225.0" y="260" text-anchor="middle">Retail</text>
+<text class="tick" x="380.0" y="260" text-anchor="middle">Airline</text>
+<text class="small mut" x="380" y="24" text-anchor="end">success rate (%)</text>
+<g class="series" style="--i:0">
+<path class="line" d="M70.0,59.6 L225.0,109.3 L380.0,168.0" stroke="#C8663A" pathLength="1"/>
+<circle class="pt" cx="70.0" cy="59.6" r="4.5" fill="#C8663A"><title>CoPE · Telecom: 40.6</title></circle>
+<circle class="pt" cx="225.0" cy="109.3" r="4.5" fill="#C8663A"><title>CoPE · Retail: 29.4</title></circle>
+<circle class="pt" cx="380.0" cy="168.0" r="4.5" fill="#C8663A"><title>CoPE · Airline: 16.2</title></circle>
+<line class="leader" x1="386.0" y1="168.0" x2="394.0" y2="181.6" stroke="#C8663A"/>
+<text class="end" x="398" y="185.6">CoPE</text>
+</g>
+<g class="series" style="--i:1">
+<path class="line" d="M70.0,67.6 L225.0,162.2 L380.0,123.6" stroke="#2F6FC4" pathLength="1"/>
+<circle class="pt" cx="70.0" cy="67.6" r="4.5" fill="#2F6FC4"><title>GRPO (ours) · Telecom: 38.8</title></circle>
+<circle class="pt" cx="225.0" cy="162.2" r="4.5" fill="#2F6FC4"><title>GRPO (ours) · Retail: 17.5</title></circle>
+<circle class="pt" cx="380.0" cy="123.6" r="4.5" fill="#2F6FC4"><title>GRPO (ours) · Airline: 26.2</title></circle>
+<text class="end" x="398" y="127.6">GRPO (ours)</text>
+</g>
+<g class="series" style="--i:2">
+<path class="line" d="M70.0,159.6 L225.0,156.4 L380.0,167.6" stroke="#B8801E" pathLength="1"/>
+<circle class="pt" cx="70.0" cy="159.6" r="4.5" fill="#B8801E"><title>InfoPO · Telecom: 18.1</title></circle>
+<circle class="pt" cx="225.0" cy="156.4" r="4.5" fill="#B8801E"><title>InfoPO · Retail: 18.8</title></circle>
+<circle class="pt" cx="380.0" cy="167.6" r="4.5" fill="#B8801E"><title>InfoPO · Airline: 16.3</title></circle>
+<text class="end" x="398" y="171.6">InfoPO</text>
+</g>
+<g class="series" style="--i:3">
+<path class="line" d="M70.0,162.2 L225.0,162.2 L380.0,173.3" stroke="#3F8F5A" pathLength="1"/>
+<circle class="pt" cx="70.0" cy="162.2" r="4.5" fill="#3F8F5A"><title>RAGEN · Telecom: 17.5</title></circle>
+<circle class="pt" cx="225.0" cy="162.2" r="4.5" fill="#3F8F5A"><title>RAGEN · Retail: 17.5</title></circle>
+<circle class="pt" cx="380.0" cy="173.3" r="4.5" fill="#3F8F5A"><title>RAGEN · Airline: 15.0</title></circle>
+<line class="leader" x1="386.0" y1="173.3" x2="394.0" y2="195.6" stroke="#3F8F5A"/>
+<text class="end" x="398" y="199.6">RAGEN</text>
+</g>
+</svg>
+    </div>
+  </div>
+  <details class="chart-table"><summary>Table view</summary><div class="scroll"><table><caption><b>ALFWorld subtasks, success rate (%)</b></caption><thead><tr><th>Method</th><th>Pick</th><th>Look</th><th>Clean</th><th>Heat</th><th>Cool</th><th>Pick2</th></tr></thead><tbody><tr><td>CoPE</td><td>100.0</td><td>100.0</td><td>97.3</td><td>96.0</td><td>89.3</td><td>91.1</td></tr><tr><td>GRPO</td><td>100.0</td><td>73.7</td><td>94.6</td><td>84.0</td><td>89.3</td><td>88.9</td></tr><tr><td>ECHO</td><td>97.8</td><td>89.5</td><td>91.9</td><td>96.0</td><td>96.4</td><td>93.3</td></tr><tr><td>RWML + GRPO</td><td>100.0</td><td>89.5</td><td>89.2</td><td>92.0</td><td>96.4</td><td>84.4</td></tr></tbody></table></div><div class="scroll"><table><caption><b>&tau;&sup2;-bench domains, success rate (%)</b></caption><thead><tr><th>Method</th><th>Telecom</th><th>Retail</th><th>Airline</th></tr></thead><tbody><tr><td>CoPE</td><td>40.6</td><td>29.4</td><td>16.2</td></tr><tr><td>GRPO (ours)</td><td>38.8</td><td>17.5</td><td>26.2</td></tr><tr><td>InfoPO</td><td>18.1</td><td>18.8</td><td>16.3</td></tr><tr><td>RAGEN</td><td>17.5</td><td>17.5</td><td>15.0</td></tr></tbody></table></div></details>
+</figure>
+
+    <p class="results-note">
+      CoPE improves over GRPO on every benchmark in aggregate, but not on every slice: on
+      ALFWorld the Cool subtask favours ECHO and RWML, and on &tau;<sup>2</sup>-bench the
+      overall lift comes from a ~12-point gain on Retail against a drop on Airline. The
+      paper analyses both.
+    </p>
+    </div>
+    <template id="results-tables"><div class="scroll">
       <table>
         <caption>
           <b>Simulated agent tasks.</b> ALFWorld reports success rate (%) per subtask and
@@ -345,10 +715,7 @@
         </tbody>
       </table>
     </div>
-
-    <h3>Realistic applications</h3>
-
-    <div class="scroll">
+<div class="scroll">
       <table>
         <caption>
           <b>&tau;<sup>2</sup>-bench.</b> Avg@4 task success rate with Qwen2.5-7B-Instruct.
@@ -371,8 +738,7 @@
         </tbody>
       </table>
     </div>
-
-    <div class="scroll">
+<div class="scroll">
       <table>
         <caption>
           <b>AppWorld.</b> Success rate (%) with Qwen2.5-14B-Instruct.
@@ -395,14 +761,7 @@
           <tr class="ours"><td>CoPE</td><td>55.4</td><td>22.5</td></tr>
         </tbody>
       </table>
-    </div>
-
-    <p style="margin-top:24px">
-      CoPE improves over GRPO on every benchmark in aggregate. The gains are not uniform
-      inside a benchmark: on &tau;<sup>2</sup>-bench the overall lift comes from a ~12-point
-      gain on Retail against a drop on Airline, and on ALFWorld the Cool and Pick2 subtasks
-      favour ECHO or RWML. The paper analyses both.
-    </p>
+    </div></template>
   </div>
 </section>
 

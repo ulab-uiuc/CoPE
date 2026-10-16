@@ -38,6 +38,16 @@ body {
 
 .hero { padding: 40px 0 8px; }
 
+.title {
+  text-align: center;
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: var(--brown-dark);
+  margin: 0 0 24px;
+}
+
 .hero img {
   display: block;
   width: 100%;
@@ -292,6 +302,7 @@ footer a { color: var(--brown); }
 
 @media (max-width: 640px) {
   body { font-size: 17px; }
+  .title { font-size: 1.45rem; margin-bottom: 16px; }
   .hero { padding-top: 20px; }
   section { padding: 32px 0; }
   h2 { font-size: 1.28rem; }
