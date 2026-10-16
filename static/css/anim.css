@@ -429,10 +429,34 @@
 .anim-flow[data-scene="2"] .hd-p { animation: anim-fade 0.15s both; animation-delay: calc(1.9s + var(--k) * 0.12s); }
 .anim-flow[data-scene="2"] .box-la { animation: anim-pop 0.3s both 2.15s; }
 
-/* scene 3 */
+/* scene 3: sum, then gradients flow back into the shared backbone */
+.anim-flow .grad { fill: none; stroke: var(--amber-deep); stroke-width: 2.4; stroke-dasharray: 5 7; stroke-linecap: round; }
+.anim-flow .grad-lbl { fill: var(--amber-deep); }
 .anim-flow[data-scene="3"] .plus { animation: anim-pop 0.3s both 0.2s; }
 .anim-flow[data-scene="3"] .ar-sum { animation: anim-draw 0.35s ease-out both 0.5s; }
-.anim-flow[data-scene="3"] .llm-hl { animation: anim-pulse 1.2s ease-in-out 0.8s 1 both; }
+.anim-flow[data-scene="3"] .grad-back { animation: grad-back 1.5s linear both 0.9s; }
+.anim-flow[data-scene="3"] .grad-fwd { animation: grad-fwd 1.5s linear both 1.1s; }
+.anim-flow[data-scene="3"] .grad-lbl { animation: anim-rise 0.35s both 2.0s; }
+.anim-flow[data-scene="3"] .llm-bg { animation: llm-flash 1.0s ease-out both 2.1s; }
+.anim-flow[data-scene="3"] .llm-hl { animation: anim-pulse 1.2s ease-in-out 2.1s 1 both; }
+
+@keyframes grad-back {
+  from { stroke-dashoffset: 0; opacity: 1; }
+  85%  { opacity: 1; }
+  to   { stroke-dashoffset: 72; opacity: 0; }
+}
+
+@keyframes grad-fwd {
+  from { stroke-dashoffset: 72; opacity: 1; }
+  85%  { opacity: 1; }
+  to   { stroke-dashoffset: 0; opacity: 0; }
+}
+
+@keyframes llm-flash {
+  0%   { fill: var(--cream-deep); }
+  30%  { fill: #F3C7A9; }
+  100% { fill: var(--cream-deep); }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .anim-flow[data-scene="1"] .fl-a2 rect { fill: var(--terracotta); stroke: var(--terracotta); }

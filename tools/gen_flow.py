@@ -94,6 +94,14 @@ def anim_flow():
     out.append(f'<text class="plus sc sc-3 fin pp" x="{(xg + 52 + xaf - 58) / 2}" y="{ly + 25}" text-anchor="middle" font-size="15" font-weight="700">+ λ</text>')
 
     out.append(f'<path class="ar ar-sum drawn sc sc-3 fin" d="M{xg},{ly + lh} V260 M{xaf},{ly + lh} V260" pathLength="1"/>')
+    # gradient pulses: back along the model arrows, forward along the sum lines into the backbone
+    out.append(f'<path class="grad grad-back sc sc-3" d="M{xa2},{by + bh} L{xg + 14},{ly - 2}"/>')
+    for k, x in enumerate((xa3, xa4, xa5)):
+        tx = xaf - 10 + 10 * k
+        out.append(f'<path class="grad grad-back sc sc-3" d="M{x},{by + bh} L{tx},{ly - 2}"/>')
+    out.append(f'<path class="grad grad-fwd sc sc-3" d="M{xg},{ly + lh} V260 M{xaf},{ly + lh} V260"/>')
+    for x in (xg, xaf):
+        out.append(f'<text class="grad-lbl sc sc-3" x="{x + 6}" y="{257}" font-size="12" font-weight="700">&#8711;&theta;</text>')
     out.append(f'<g class="llm pp"><rect class="llm-bg" x="118" y="262" width="429" height="26" rx="7"/>'
                f'<rect class="llm-hl sc sc-3 fin" x="118" y="262" width="429" height="26" rx="7"/>'
                f'<text x="332.5" y="279" text-anchor="middle">Shared LLM backbone θ   ·   {rich("π", ("θ",), " acts,  ", size=8.5, dy=2.5)}{rich("p", ("θ",), " forecasts", size=8.5, dy=2.5)}</text></g>')
@@ -103,9 +111,9 @@ def anim_flow():
         ('anim-cap', '<b>Two rollouts, one backbone.</b> Each rollout is scored once at the end: <i>Y</i>(&tau;) = 0 for failure, 1 for success. The same LLM produces every action.'),
         ('anim-cap', '<b>&#8466;<sub>GRPO</sub> on all rollouts.</b> The policy &pi;<sub>&theta;</sub> is updated on the current action <i>a<sub>t</sub></i> of every rollout, with the group-relative advantage from <i>Y</i>.'),
         ('anim-cap', '<b>&#8466;<sub>AF</sub> on successful rollouts only.</b> From the same history, the backbone also forecasts <i>a</i><sub>t+1</sub>, <i>a</i><sub>t+2</sub>, <i>a</i><sub>t+3</sub> and is fit to them by supervised learning. Failed rollouts contribute nothing here.'),
-        ('anim-cap anim-cap-static', '<b>&#8466; = &#8466;<sub>GRPO</sub> + &lambda; &#8466;<sub>AF</sub>.</b> Both losses update the same parameters, so acting and forecasting share every weight of the backbone.'),
+        ('anim-cap anim-cap-static', '<b>&#8466; = &#8466;<sub>GRPO</sub> + &lambda; &#8466;<sub>AF</sub>.</b> Both losses backpropagate into the same parameters &theta;, so acting and forecasting share every weight of the backbone.'),
     ]
-    return figure("anim-flow", "1400,2400,2800,2400", "\n".join(out), caps)
+    return figure("anim-flow", "1400,2400,2800,3400", "\n".join(out), caps)
 
 
 def main():

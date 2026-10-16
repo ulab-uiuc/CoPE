@@ -103,7 +103,7 @@
 
 <section>
   <div class="wrap">
-    <h2>Why action targets</h2>
+    <h2>Why predict action sequences?</h2>
     <div class="anim-row">
     <figure class="anim anim-targets" data-durations="2300,2300,2500,2900">
 <svg viewBox="0 0 560 300" role="img" aria-label="Which step-wise target to predict: value targets share one scalar across steps, observation targets are long, noisy and one step ahead, multi-step action targets are short, clean and step-specific.">
@@ -214,7 +214,7 @@
 <section>
   <div class="wrap">
     <h2>Method</h2>
-    <figure class="anim anim-flow" data-durations="1400,2400,2800,2400">
+    <figure class="anim anim-flow" data-durations="1400,2400,2800,3400">
 <svg viewBox="0 0 560 300" role="img" aria-label="How the CoPE loss is computed: the GRPO loss uses the current action of every rollout, the action forecasting loss uses the next K actions of successful rollouts only, and both update one shared LLM.">
 <text class="ttl sc sc-0 fin" x="20" y="26">Two rollouts, one shared backbone</text>
 <text class="ttl sc sc-1" x="20" y="26">ℒ<tspan dy="3.5" font-size="10.5">GRPO</tspan><tspan dy="-3.5">: the current action, all rollouts</tspan></text>
@@ -300,6 +300,13 @@
 <g class="lossbox box-la sc sc-2 sc-3 fin pp"><rect x="354" y="206" width="116" height="40" rx="7"/><text class="l1" x="412" y="223" text-anchor="middle">ℒ<tspan dy="3" font-size="9.5">AF</tspan></text><text class="l2" x="412" y="238" text-anchor="middle">only Y(τ) = 1</text></g>
 <text class="plus sc sc-3 fin pp" x="338.0" y="231" text-anchor="middle" font-size="15" font-weight="700">+ λ</text>
 <path class="ar ar-sum drawn sc sc-3 fin" d="M270,246 V260 M412,246 V260" pathLength="1"/>
+<path class="grad grad-back sc sc-3" d="M308,176 L284,204"/>
+<path class="grad grad-back sc sc-3" d="M384,176 L402,204"/>
+<path class="grad grad-back sc sc-3" d="M460,176 L412,204"/>
+<path class="grad grad-back sc sc-3" d="M536,176 L422,204"/>
+<path class="grad grad-fwd sc sc-3" d="M270,246 V260 M412,246 V260"/>
+<text class="grad-lbl sc sc-3" x="276" y="257" font-size="12" font-weight="700">&#8711;&theta;</text>
+<text class="grad-lbl sc sc-3" x="418" y="257" font-size="12" font-weight="700">&#8711;&theta;</text>
 <g class="llm pp"><rect class="llm-bg" x="118" y="262" width="429" height="26" rx="7"/><rect class="llm-hl sc sc-3 fin" x="118" y="262" width="429" height="26" rx="7"/><text x="332.5" y="279" text-anchor="middle">Shared LLM backbone θ   ·   π<tspan dy="2.5" font-size="8.5">θ</tspan><tspan dy="-2.5"> acts,  </tspan>p<tspan dy="2.5" font-size="8.5">θ</tspan><tspan dy="-2.5"> forecasts</tspan></text></g>
 </svg>
       <div class="anim-bar">
@@ -310,7 +317,7 @@
         <span class="anim-cap" data-for="0"><b>Two rollouts, one backbone.</b> Each rollout is scored once at the end: <i>Y</i>(&tau;) = 0 for failure, 1 for success. The same LLM produces every action.</span>
         <span class="anim-cap" data-for="1"><b>&#8466;<sub>GRPO</sub> on all rollouts.</b> The policy &pi;<sub>&theta;</sub> is updated on the current action <i>a<sub>t</sub></i> of every rollout, with the group-relative advantage from <i>Y</i>.</span>
         <span class="anim-cap" data-for="2"><b>&#8466;<sub>AF</sub> on successful rollouts only.</b> From the same history, the backbone also forecasts <i>a</i><sub>t+1</sub>, <i>a</i><sub>t+2</sub>, <i>a</i><sub>t+3</sub> and is fit to them by supervised learning. Failed rollouts contribute nothing here.</span>
-        <span class="anim-cap anim-cap-static" data-for="3"><b>&#8466; = &#8466;<sub>GRPO</sub> + &lambda; &#8466;<sub>AF</sub>.</b> Both losses update the same parameters, so acting and forecasting share every weight of the backbone.</span>
+        <span class="anim-cap anim-cap-static" data-for="3"><b>&#8466; = &#8466;<sub>GRPO</sub> + &lambda; &#8466;<sub>AF</sub>.</b> Both losses backpropagate into the same parameters &theta;, so acting and forecasting share every weight of the backbone.</span>
       </figcaption>
     </figure>
 
@@ -393,12 +400,6 @@
       the observations in between. Because forecaster and policy share parameters, those
       forecasts are folded into &pi;<sub>&theta;</sub>: an ensemble over time that costs
       nothing at inference.
-    </p>
-    <p>
-      The paper checks this with a separate LoRA forecaster trained on the policy's
-      trajectories without passing gradients back. Using its forecasts to rerank candidate
-      actions improves GRPO and narrows its gap to CoPE, but adds nothing to CoPE, whose
-      policy already contains that information.
     </p>
   </div>
 </section>
