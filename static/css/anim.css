@@ -320,19 +320,23 @@
 }
 .anim-loss[data-scene="1"] .tag-grpo { animation: anim-rise 0.35s both 0.8s; }
 
-.anim-loss[data-scene="2"] .k1 {
-  animation: anim-pop 0.3s both;
-  animation-delay: calc(0.3s + var(--i) * 60ms);
+/* scene 2: the band fills row by row (one history, its whole chunk) */
+.anim-loss[data-scene="2"] .af {
+  animation: anim-pop 0.25s both;
+  animation-delay: calc(0.25s + var(--i) * 0.28s + var(--k) * 0.07s);
 }
-.anim-loss[data-scene="2"] .k2 {
-  animation: anim-pop 0.3s both;
-  animation-delay: calc(0.9s + var(--i) * 60ms);
-}
-.anim-loss[data-scene="2"] .k3 {
-  animation: anim-pop 0.3s both;
-  animation-delay: calc(1.5s + var(--i) * 60ms);
+.anim-loss .row-hl { fill: none; stroke: var(--amber-deep); stroke-width: 2.2; }
+.anim-loss[data-scene="2"] .row-hl {
+  animation: row-flash 0.6s ease-out both;
+  animation-delay: calc(0.2s + var(--i) * 0.28s);
 }
 .anim-loss[data-scene="2"] .tag-af { animation: anim-rise 0.35s both 0.2s; }
+
+@keyframes row-flash {
+  0%   { opacity: 0; }
+  25%  { opacity: 1; }
+  100% { opacity: 0; }
+}
 
 .anim-loss[data-scene="3"] .col-hl { animation: anim-pulse 1.2s ease-in-out 0.2s 2 both; }
 .anim-loss[data-scene="3"] .col-note { animation: anim-rise 0.35s both 0.3s; }

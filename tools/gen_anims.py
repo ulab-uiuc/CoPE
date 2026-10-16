@@ -221,9 +221,13 @@ def anim_loss():
             if col >= n:
                 continue
             scenes = "sc-1 sc-2 sc-3" if k == 0 else "sc-2 sc-3"
-            out.append(f'<g class="cell k{k} sc {scenes} fin pp" style="--i:{r}">'
+            af = "" if k == 0 else " af"
+            out.append(f'<g class="cell k{k}{af} sc {scenes} fin pp" style="--i:{r};--k:{k}">'
                        f'<rect x="{ox + col * c + 1}" y="{oy + r * c + 1}" width="{c - 2}" height="{c - 2}" rx="4"/>'
                        f'<text x="{ox + col * c + c / 2}" y="{oy + r * c + c / 2 + 4}" text-anchor="middle">{k}</text></g>')
+    for r in range(n):
+        span = min(4, n - r)
+        out.append(f'<rect class="row-hl sc" style="--i:{r}" x="{ox + r * c}" y="{oy + r * c}" width="{span * c}" height="{c}" rx="5"/>')
     # right panel
     out.append('<text class="formula sc sc-1 sc-2 sc-3 fin" x="300" y="96">&#8466; = &#8466;<tspan class="sub" dy="4">GRPO</tspan>'
                '<tspan class="fterm" dy="-4"> + &lambda; &#8466;</tspan><tspan class="fterm sub" dy="4">AF</tspan></text>')
@@ -233,7 +237,7 @@ def anim_loss():
     out.append('<g class="tag-af sc sc-2 sc-3 fin pp">'
                '<rect x="300" y="160" width="11" height="11" rx="2" fill="#4F7CAC"/><rect x="313" y="160" width="11" height="11" rx="2" fill="#86A7CC"/><rect x="326" y="160" width="11" height="11" rx="2" fill="#BBD0E6"/>'
                '<text class="small" x="344" y="170">k = 1 … K · forecast actions (AF)</text>'
-               '<text class="small mut" x="300" y="188">one SFT loss, successful rollouts only</text></g>')
+               '<text class="small mut" x="300" y="188">row by row: h<tspan dy="2.5" font-size="9">t</tspan><tspan dy="-2.5"> forecasts a</tspan><tspan dy="2.5" font-size="9">t:t+K</tspan></text></g>')
     out.append(f'<rect class="col-hl sc sc-3" x="{ox + 4 * c}" y="{oy + 1 * c}" width="{c}" height="{4 * c}" rx="5"/>')
     out.append('<g class="col-note sc sc-3 pp">'
                f'<text x="300" y="226" font-weight="600" fill="#B8801E">{rich("a", ("4",), " is forecast from h", ("1",), ", h", ("2",), ", h", ("3",), ", h", ("4",))}</text>'
@@ -242,8 +246,8 @@ def anim_loss():
     caps = [
         ('anim-cap', '<b>Where does the loss land?</b> Rows are histories <i>h<sub>t</sub></i>, columns are actions. A cell is supervised when the model is asked to produce that action from that history.'),
         ('anim-cap', '<b>GRPO: the diagonal.</b> Each history is scored only on its own next action, <i>k</i> = 0, with the policy-gradient loss on all rollouts.'),
-        ('anim-cap anim-cap-static', '<b>CoPE: the band.</b> One extra SFT loss fits the next <i>K</i> actions on successful rollouts, so the diagonal extends to <i>k</i> = 1 &hellip; <i>K</i>. Nothing else changes.'),
-        ('anim-cap', '<b>Read by column.</b> Each action is now forecast from <i>K</i> + 1 histories. The shared backbone absorbs this temporal ensemble, so forecasting improves acting.'),
+        ('anim-cap anim-cap-static', '<b>The loss runs along rows.</b> One extra SFT loss: on successful rollouts, each history <i>h<sub>t</sub></i> forecasts its next <i>K</i> actions <i>a</i><sub>t:t+K</sub>. Row by row, the diagonal becomes a band.'),
+        ('anim-cap', '<b>The effect reads along columns.</b> Every action is now forecast from <i>K</i> + 1 histories, not just its own. The shared backbone absorbs this temporal ensemble, so forecasting improves acting.'),
     ]
     return figure("anim-loss", "1100,1700,2400,2600", "\n".join(out), caps)
 
