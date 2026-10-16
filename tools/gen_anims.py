@@ -226,7 +226,7 @@ def anim_loss():
                        f'<text x="{ox + col * c + c / 2}" y="{oy + r * c + c / 2 + 4}" text-anchor="middle">{k}</text></g>')
     # right panel
     out.append('<text class="formula sc sc-1 sc-2 sc-3 fin" x="300" y="96">&#8466; = &#8466;<tspan class="sub" dy="4">GRPO</tspan>'
-               '<tspan class="fterm" dy="-4"> + &beta; &#8466;</tspan><tspan class="fterm sub" dy="4">AF</tspan></text>')
+               '<tspan class="fterm" dy="-4"> + &lambda; &#8466;</tspan><tspan class="fterm sub" dy="4">AF</tspan></text>')
     out.append(f'<g class="tag-grpo sc sc-1 sc-2 sc-3 fin pp"><rect x="300" y="114" width="11" height="11" rx="2" fill="{TERRA}"/>'
                '<text class="small" x="318" y="124">k = 0 · the current action (GRPO)</text>'
                '<text class="small mut" x="300" y="142">policy gradient on all rollouts</text></g>')

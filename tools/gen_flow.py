@@ -26,7 +26,7 @@ def anim_flow():
     out.append('<text class="ttl sc sc-0 fin" x="20" y="26">Two rollouts, one shared backbone</text>')
     out.append(f'<text class="ttl sc sc-1" x="20" y="26">{rich("ℒ", ("GRPO",), ": the current action, all rollouts", size=10.5)}</text>')
     out.append(f'<text class="ttl sc sc-2" x="20" y="26">{rich("ℒ", ("AF",), ": forecast the next K actions, successful rollouts only", size=10.5)}</text>')
-    out.append(f'<text class="ttl sc sc-3" x="20" y="26">{rich("ℒ = ℒ", ("GRPO",), " + β ℒ", ("AF",), size=10.5)}</text>')
+    out.append(f'<text class="ttl sc sc-3" x="20" y="26">{rich("ℒ = ℒ", ("GRPO",), " + λ ℒ", ("AF",), size=10.5)}</text>')
 
     for row, cy in (("top", cy_top), ("bot", cy_bot)):
         for i in range(11):
@@ -85,7 +85,7 @@ def anim_flow():
     out.append(f'<g class="lossbox box-la sc sc-2 sc-3 fin pp"><rect x="{xaf - 58}" y="{ly}" width="116" height="{lh}" rx="7"/>'
                f'<text class="l1" x="{xaf}" y="{ly + 17}" text-anchor="middle">{sub("ℒ", "AF", 9.5, 3)}</text>'
                f'<text class="l2" x="{xaf}" y="{ly + 32}" text-anchor="middle">only Y(τ) = 1</text></g>')
-    out.append(f'<text class="plus sc sc-3 fin pp" x="{(xg + 52 + xaf - 58) / 2}" y="{ly + 25}" text-anchor="middle" font-size="15" font-weight="700">+ β</text>')
+    out.append(f'<text class="plus sc sc-3 fin pp" x="{(xg + 52 + xaf - 58) / 2}" y="{ly + 25}" text-anchor="middle" font-size="15" font-weight="700">+ λ</text>')
 
     out.append(f'<path class="ar ar-sum drawn sc sc-3 fin" d="M{xg},{ly + lh} V260 M{xaf},{ly + lh} V260" pathLength="1"/>')
     out.append(f'<g class="llm pp"><rect class="llm-bg" x="118" y="262" width="429" height="26" rx="7"/>'
@@ -97,7 +97,7 @@ def anim_flow():
         ('anim-cap', '<b>Two rollouts, one backbone.</b> Each rollout is scored once at the end: <i>Y</i>(&tau;) = 0 for failure, 1 for success. The same LLM produces every action.'),
         ('anim-cap', '<b>&#8466;<sub>GRPO</sub> on all rollouts.</b> The policy &pi;<sub>&theta;</sub> is updated on the current action <i>a<sub>t</sub></i> of every rollout, with the group-relative advantage from <i>Y</i>.'),
         ('anim-cap', '<b>&#8466;<sub>AF</sub> on successful rollouts only.</b> From the same history, the backbone also forecasts <i>a</i><sub>t+1</sub>, <i>a</i><sub>t+2</sub>, <i>a</i><sub>t+3</sub> and is fit to them by supervised learning. Failed rollouts contribute nothing here.'),
-        ('anim-cap anim-cap-static', '<b>&#8466; = &#8466;<sub>GRPO</sub> + &beta; &#8466;<sub>AF</sub>.</b> Both losses update the same parameters, so acting and forecasting share every weight of the backbone.'),
+        ('anim-cap anim-cap-static', '<b>&#8466; = &#8466;<sub>GRPO</sub> + &lambda; &#8466;<sub>AF</sub>.</b> Both losses update the same parameters, so acting and forecasting share every weight of the backbone.'),
     ]
     return figure("anim-flow", "1400,2400,2800,2400", "\n".join(out), caps)
 
